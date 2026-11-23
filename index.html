@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no,viewport-fit=cover">
+    <title>Super memo</title>
+    <style>
+        :root {
+            --tile-size: 60px;
+            --gap-size: 2px;
+            --led-red: #ff3030;
+            --led-green: #39ff14;
+            --led-blue: #00d4ff;
+            --radius: 12px;
+            --anim-smooth: cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        * { box-sizing: border-box; touch-action: none; -webkit-user-select: none; }
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, #151619 0%, #050505 100%);
+            color: #ddd; overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        #viewport { width: 100vw; height: 100vh; position: relative; overflow: hidden; cursor: crosshair; }
+        #viewport.grabbing { cursor: grabbing; }
+
+        #pan-zoom-layer {
+            position: absolute; top: 0; left: 0;
+            transform-origin: 0 0; will-change: transform;
+        }
+
+        .grid-wrapper {
+            display: grid; gap: 0px; background: transparent; padding: 500px; width: max-content;
+        }
+
+        .grid-wrapper.show-grid .slot { 
+            background: rgba(255, 255, 255, 0.05); 
+            outline: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: var(--radius);
+        }
+
+        .slot { width: var(--tile-size); height: var(--tile-size); position: relative; }
+
+        .pad {
+            position: absolute; inset: 2px;
+            background: linear-gradient(145deg, #3a3b40, #1e1f23);
+            border-radius: var(--radius);
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 12px; font-weight: 800; text-align: center; 
+            z-index: 10; border: 1px solid #111;
+            box-shadow: 2px 3px 6px rgba(0,0,0,0.8), inset 1px 1px 1px rgba(255,255,255,0.1);
+            cursor: pointer; will-change: transform;
+            transition: transform 0.3s var(--anim-smooth), box-shadow 0.3s ease;
+            height: calc(var(--tile-size) - 4px);
+        }
+
+        /* --- BUNDLE SYSTEM --- */
+        .bundle {
+            position: absolute; z-index: 5;
+            display: flex; flex-direction: column;
+            pointer-events: none; width: max-content;
+            will-change: transform; transition: transform 0.3s var(--anim-smooth);
+        }
+
+        .bundle-artwork {
+            position: absolute; right: 100%; top: 0;
+            width: calc(var(--tile-size) * 2);
+            height: 100%; /* S'adapte à la hauteur du bundle */
+            margin-right: 5px; background: #222;
+            border-radius: var(--radius); border: 2px solid #444;
+            overflow: hidden; display: none; pointer-events: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .bundle-artwork img { width: 100%; height: 100%; object-fit: cover; }
+        
+        .bundle-header {
+            height: 30px; background: linear-gradient(145deg, #444, #222);
+            border: 1px solid #555; border-radius: var(--radius) var(--radius) 0 0;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--led-blue); font-size: 10px; font-weight: bold;
+            pointer-events: auto; cursor: grab; width: 100%;
+        }
+
+        .bundle-body {
+            min-width: calc(var(--tile-size) * 2);
+            min-height: calc(var(--tile-size) * 2);
+            padding: 5px var(--tile-size) var(--tile-size) 5px; /* Colonne et ligne vide */
+            background: rgba(255,255,255,0.02);
+            border: 1px dashed #444; border-top: none;
+            border-radius: 0 0 var(--radius) var(--radius);
+            display: grid; /* Grid au lieu de flex pour support multi-ligne */
+            grid-template-columns: repeat(auto-fill, var(--tile-size));
+            gap: 5px; pointer-events: auto;
+        }
+
+        .bundle-body .pad { position: relative; inset: auto; }
+
+        .is-dragging { z-index: 9999 !important; opacity: 0.8; pointer-events: none; transition: none !important; }
+        .pad.active-play { border-color: var(--led-green); transform: scale(0.95); box-shadow: 0 0 15px var(--led-green); }
+        .pad.recording { background: linear-gradient(145deg, #a00, #600); animation: pulse-rec 0.6s infinite alternate; }
+
+        @keyframes pulse-rec { from { opacity: 1; } to { opacity: 0.5; } }
+
+        #controls {
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 10000;
+            display: flex; gap: 10px; background: rgba(20, 20, 20, 0.8); padding: 12px;
+            border-radius: 100px; border: 1px solid #444; backdrop-filter: blur(10px);
+        }
+
+        .btn-mode {
+            padding: 8px 15px; border-radius: 50px; border: 1px solid #111;
+            background: #222; color: #555; font-size: 10px; font-weight: bold; cursor: pointer;
+        }
+
+        .btn-mode.active { color: white; border-color: #eee; }
+        .btn-mode.active-create { color: var(--led-blue); border-color: var(--led-blue); }
+        .btn-mode.active-delete { color: var(--led-red); border-color: var(--led-red); }
+        .btn-mode.active-bundle { color: #f0f; border-color: #f0f; }
+
+        #modal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: none; justify-content: center; align-items: center; z-index: 20000; }
+        .modal-content { background: #1a1b1e; padding: 30px; border-radius: 20px; border: 1px solid #333; text-align: center; }
+        input[type="text"] { background: #000; color: var(--led-green); border: 1px solid #444; padding: 12px; width: 220px; text-align: center; font-size: 16px; border-radius: 10px; }
+    </style>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#000000">
+    <link rel="apple-touch-icon" href="icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+<meta property="og:title" content="Super memo">
+<meta name="twitter:title" content="Super memo">
+<meta name="application-name" content="Super memo">
+<meta name="apple-mobile-web-app-title" content="Super memo">
+<meta name="description" content="Audio agenda intelligent">
+<meta property="og:description" content="Audio agenda intelligent">
+<meta name="twitter:description" content="Audio agenda intelligent">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="./icon.png">
+<meta property="og:image" content="https://mekeirish.github.io/Super-memo/icon.png">
+<meta name="twitter:image" content="https://mekeirish.github.io/Super-memo/icon.png">
+<meta name="twitter:card" content="summary">
+<meta property="og:url" content="https://mekeirish.github.io/Super-memo/">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1320x2868.png">
+<link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1206x2622.png">
+<link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1290x2796.png">
+<link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1179x2556.png">
+<link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1284x2778.png">
+<link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1170x2532.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1242x2688.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./splash-828x1792.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1125x2436.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1242x2208.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./splash-750x1334.png">
+<link rel="apple-touch-startup-image" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./splash-640x1136.png">
+</head>
+<body>
+
+    <div id="viewport">
+        <div id="pan-zoom-layer">
+            <div class="grid-wrapper" id="grid"></div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <div id="bundleBtn" class="btn-mode" onclick="setMode('bundle')">BUNDLE</div>
+        <div id="createBtn" class="btn-mode" onclick="setMode('create')">CREATE</div>
+        <div id="deleteBtn" class="btn-mode" onclick="setMode('delete')">DELETE</div>
+        <div id="moveBtn" class="btn-mode active" onclick="setMode('move')">GRID</div>
+    </div>
+
+    <div id="modal">
+        <div class="modal-content">
+            <input type="text" id="titleInput" placeholder="VALEUR">
+            <br><br>
+            <button style="padding:10px 25px; border-radius: 10px; cursor:pointer" onclick="finalizeCreation()">OK</button>
+        </div>
+    </div>
+
+    <input type="file" id="artPicker" accept="image/*" style="display:none">
+
+    <script>
+        const layer = document.getElementById('pan-zoom-layer');
+        const grid = document.getElementById('grid');
+        const modal = document.getElementById('modal');
+        const viewport = document.getElementById('viewport');
+        const titleInput = document.getElementById('titleInput');
+        const artPicker = document.getElementById('artPicker');
+
+        let audioCtx, recorder, chunks = [], evCache = [], prevDiff = -1;
+        let scale = 1, pointX = 0, pointY = 0;
+        let currentMode = 'move', activeObj = null, creationTargetSlot = null, isRenaming = false;
+        let gridCols = 30, gridRows = 30, isDraggingAny = false;
+
+        const CELL_SIZE = 60;
+
+        function initAudio() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+        const audioBufferCache = new Map();
+        function playPad(pad) {
+            initAudio();
+            const src = pad.dataset.audio;
+            const play = (decoded) => {
+                const s = audioCtx.createBufferSource();
+                s.buffer = decoded;
+                s.connect(audioCtx.destination);
+                pad.classList.add('active-play');
+                s.onended = () => pad.classList.remove('active-play');
+                s.start(0);
+            };
+            const cached = audioBufferCache.get(src);
+            if (cached) { play(cached); return; }
+            fetch(src)
+                .then(res => res.arrayBuffer())
+                .then(buf => audioCtx.decodeAudioData(buf))
+                .then(decoded => { audioBufferCache.set(src, decoded); play(decoded); })
+                .catch(err => console.log('Audio error:', err));
+        }
+        function animateSettle(el, firstRect) {
+            el.style.transition = 'none';
+            el.style.transform = '';
+            const lastRect = el.getBoundingClientRect();
+            const dx = ((firstRect.left + firstRect.width / 2) - (lastRect.left + lastRect.width / 2)) / scale;
+            const dy = ((firstRect.top + firstRect.height / 2) - (lastRect.top + lastRect.height / 2)) / scale;
+            el.style.transform = `translate(${dx}px, ${dy}px)`;
+            void el.offsetWidth;
+            el.style.transition = '';
+            el.style.transform = '';
+        }
+
+        function uiFeedback(type) {
+            initAudio();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            if (type === 'delete') { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(220, audioCtx.currentTime); gain.gain.setValueAtTime(0.3, audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2); osc.start(); osc.stop(audioCtx.currentTime + 0.2); }
+            if (navigator.vibrate) navigator.vibrate(40);
+        }
+
+        function saveGrid() {
+            const data = { pads: [], bundles: [] };
+            document.querySelectorAll('.slot > .pad').forEach(pad => {
+                data.pads.push({ name: pad.innerText, audio: pad.dataset.audio, width: pad.style.width, x: pad.parentElement.dataset.x, y: pad.parentElement.dataset.y });
+            });
+            document.querySelectorAll('.slot > .bundle').forEach(bun => {
+                const innerPads = [];
+                bun.querySelectorAll('.pad').forEach(p => innerPads.push({ name: p.innerText, audio: p.dataset.audio, width: p.style.width }));
+                data.bundles.push({ name: bun.querySelector('.bundle-header').innerText, x: bun.parentElement.dataset.x, y: bun.parentElement.dataset.y, pads: innerPads, image: bun.querySelector('.bundle-artwork img').src });
+            });
+            try {
+                localStorage.setItem('skeuoGridData_V7', JSON.stringify(data));
+            } catch (err) {
+                console.log('Save error:', err);
+                alert("Stockage plein : impossible de sauvegarder");
+            }
+        }
+
+        function loadGrid() {
+            const raw = localStorage.getItem('skeuoGridData_V7');
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            data.pads.forEach(p => {
+                const slot = document.querySelector(`.slot[data-x="${p.x}"][data-y="${p.y}"]`);
+                if(slot) createPadUI(slot, p.name, p.audio, p.width);
+            });
+            data.bundles.forEach(b => {
+                const slot = document.querySelector(`.slot[data-x="${b.x}"][data-y="${b.y}"]`);
+                if(slot) {
+                    const bun = createBundleUI(slot, b.name);
+                    if(b.image && b.image.includes('data:image')) {
+                        bun.querySelector('.bundle-artwork').style.display = 'block';
+                        bun.querySelector('.bundle-artwork img').src = b.image;
+                    }
+                    b.pads.forEach(ip => {
+                        const pUI = createPadUI(null, ip.name, ip.audio, ip.width);
+                        bun.querySelector('.bundle-body').appendChild(pUI);
+                    });
+                }
+            });
+        }
+
+        function renderGrid() {
+            grid.style.gridTemplateColumns = `repeat(${gridCols}, var(--tile-size))`;
+            for (let i = 0; i < gridCols * gridRows; i++) {
+                const slot = document.createElement('div');
+                slot.className = 'slot';
+                slot.dataset.x = i % gridCols; slot.dataset.y = Math.floor(i / gridCols);
+                slot.onpointerdown = (e) => {
+                    if (currentMode === 'create' && !slot.hasChildNodes()) {
+                        e.stopPropagation(); creationTargetSlot = slot; startRecording(slot);
+                    } else if (currentMode === 'bundle' && !slot.hasChildNodes()){
+                        e.stopPropagation(); creationTargetSlot = slot; isRenaming = false; modal.style.display = 'flex'; titleInput.focus();
+                    }
+                };
+                grid.appendChild(slot);
+            }
+        }
+
+        async function startRecording(slot) {
+            try {
+                if (recorder && recorder.state === 'recording') return;
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        channelCount: 1,
+                        sampleRate: 48000
+                    }
+                });
+                const types = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'];
+                const mimeType = types.find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+                const options = { audioBitsPerSecond: 128000 };
+                if (mimeType) options.mimeType = mimeType;
+                recorder = new MediaRecorder(stream, options); chunks = [];
+                const pad = createPadUI(slot, "REC", null, null);
+                pad.classList.add('recording'); activeObj = pad;
+                recorder.onstop = () => {
+                    stream.getTracks().forEach(t => t.stop());
+                    const reader = new FileReader();
+                    reader.onload = (e) => { pad.dataset.audio = e.target.result; saveGrid(); };
+                    reader.readAsDataURL(new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' }));
+                    pad.classList.remove('recording'); isRenaming = false; modal.style.display = 'flex';
+                };
+                recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+                recorder.start(250);
+                pad.onpointerdown = e => { e.stopPropagation(); if(recorder.state==='recording') recorder.stop(); };
+            } catch(e) { alert("Micro requis"); }
+        }
+
+        function finalizeCreation() {
+            const name = titleInput.value.toUpperCase() || "NEW";
+            if (isRenaming) {
+                activeObj.innerText = name;
+                updatePadSize(activeObj, name);
+            } else if (currentMode === 'create') {
+                activeObj.innerText = name;
+                updatePadSize(activeObj, name);
+                setupPadEvents(activeObj);
+            } else if (currentMode === 'bundle') {
+                createBundleUI(creationTargetSlot, name);
+            }
+            modal.style.display = 'none'; titleInput.value = ""; setMode('move'); saveGrid();
+        }
+
+        function updatePadSize(pad, text) {
+            let span = Math.max(1, Math.ceil((text.length * 9 + 15) / 60));
+            pad.style.width = `calc(${span * 60}px - 4px)`;
+            pad.style.gridColumnEnd = `span ${span}`;
+        }
+
+        function createPadUI(slot, name, audio, width) {
+            const pad = document.createElement('div');
+            pad.className = 'pad'; pad.innerText = name;
+            if(audio) pad.dataset.audio = audio;
+            if(width) {
+                pad.style.width = width;
+                const m = width.match(/(\d+)px/);
+                if (m) pad.style.gridColumnEnd = `span ${Math.max(1, Math.round(parseInt(m[1]) / 60))}`;
+            }
+            if(slot) slot.appendChild(pad);
+            setupPadEvents(pad);
+            return pad;
+        }
+
+        function createBundleUI(slot, name) {
+            const bun = document.createElement('div');
+            bun.className = 'bundle';
+            bun.innerHTML = `<div class="bundle-artwork"><img></div><div class="bundle-header">${name}</div><div class="bundle-body"></div>`;
+            slot.appendChild(bun);
+            setupBundleEvents(bun);
+            return bun;
+        }
+
+        function setupPadEvents(pad) {
+            let pressTimer;
+            pad.onpointerdown = (e) => {
+                initAudio(); e.stopPropagation();
+                if (currentMode === 'delete') { uiFeedback('delete'); pad.remove(); saveGrid(); return; }
+                
+                // Long press pour renommer
+                pressTimer = setTimeout(() => {
+                    activeObj = pad; isRenaming = true;
+                    titleInput.value = pad.innerText;
+                    modal.style.display = 'flex';
+                }, 600);
+
+                const startX = e.clientX, startY = e.clientY;
+                let hasMoved = false, currentDx = 0, currentDy = 0;
+
+                const onMove = (me) => {
+                    const dx = (me.clientX - startX) / scale;
+                    const dy = (me.clientY - startY) / scale;
+                    if (hasMoved || Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+                        clearTimeout(pressTimer);
+                        if (!hasMoved) { hasMoved = true; isDraggingAny = true; grid.classList.add('show-grid'); pad.classList.add('is-dragging'); }
+                        currentDx = dx;
+                        currentDy = dy;
+                        pad.style.transform = `translate(${dx}px, ${dy}px) scale(1.1)`;
+                    }
+                };
+
+                const onUp = (ue) => {
+                    clearTimeout(pressTimer);
+                    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onUp);
+                    if (hasMoved) {
+                        const firstRect = pad.getBoundingClientRect();
+                        pad.style.visibility = 'hidden';
+                        const target = document.elementFromPoint(ue.clientX, ue.clientY);
+                        const slot = target?.closest('.slot');
+                        const bundleBody = target?.closest('.bundle-body');
+                        pad.style.visibility = 'visible';
+                        if (bundleBody) bundleBody.appendChild(pad);
+                        else if (slot && !slot.hasChildNodes()) slot.appendChild(pad);
+                        isDraggingAny = false; grid.classList.remove('show-grid'); pad.classList.remove('is-dragging');
+                        animateSettle(pad, firstRect);
+                        saveGrid();
+                    } else if (!isRenaming && pad.dataset.audio) {
+                        playPad(pad);
+                    }
+                };
+                document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp); document.addEventListener('pointercancel', onUp);
+            };
+        }
+
+        function setupBundleEvents(bun) {
+            const header = bun.querySelector('.bundle-header');
+            header.onclick = () => {
+                if (bun._justDragged) { bun._justDragged = false; return; }
+                if (currentMode === 'move') {
+                    artPicker.onchange = (f) => {
+                        const file = f.target.files[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (re) => {
+                                const art = bun.querySelector('.bundle-artwork');
+                                art.style.display = 'block';
+                                art.querySelector('img').src = re.target.result;
+                                saveGrid();
+                            };
+                            reader.readAsDataURL(file);
+                        }
+                    };
+                    artPicker.click();
+                }
+            };
+
+            header.onpointerdown = (e) => {
+                e.stopPropagation();
+                bun._justDragged = false;
+                if (currentMode === 'delete') { uiFeedback('delete'); bun.remove(); saveGrid(); return; }
+                const startX = e.clientX, startY = e.clientY;
+                let hasMoved = false, currentDx = 0, currentDy = 0;
+                const onMove = (me) => {
+                    const dx = (me.clientX - startX) / scale;
+                    const dy = (me.clientY - startY) / scale;
+                    if (hasMoved || Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+                        if (!hasMoved) { hasMoved = true; isDraggingAny = true; grid.classList.add('show-grid'); bun.classList.add('is-dragging'); }
+                        currentDx = dx;
+                        currentDy = dy;
+                        bun.style.transform = `translate(${dx}px, ${dy}px) scale(1.05)`;
+                    }
+                };
+                const onUp = (ue) => {
+                    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onUp);
+                    if (hasMoved) {
+                        const firstRect = bun.getBoundingClientRect();
+                        bun.style.visibility = 'hidden';
+                        const slot = document.elementFromPoint(ue.clientX, ue.clientY)?.closest('.slot');
+                        bun.style.visibility = 'visible';
+                        if (slot && !slot.hasChildNodes()) slot.appendChild(bun);
+                        isDraggingAny = false; grid.classList.remove('show-grid'); bun.classList.remove('is-dragging');
+                        bun._justDragged = true;
+                        animateSettle(bun, firstRect);
+                        saveGrid();
+                    }
+                };
+                document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp); document.addEventListener('pointercancel', onUp);
+            };
+        }
+
+        function setMode(m) {
+            currentMode = m;
+            document.querySelectorAll('.btn-mode').forEach(b => b.classList.remove('active', 'active-create', 'active-delete', 'active-bundle'));
+            document.getElementById(m+'Btn')?.classList.add('active-'+m);
+            if(m === 'move') document.getElementById('moveBtn').classList.add('active');
+        }
+
+        function updateTransform() { layer.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`; }
+        let transformRaf = false;
+        function scheduleTransform() {
+            if (transformRaf) return;
+            transformRaf = true;
+            requestAnimationFrame(() => { transformRaf = false; updateTransform(); });
+        }
+
+        viewport.onpointerdown = e => { if (currentMode === 'move') viewport.classList.add('grabbing'); evCache.push(e); };
+        viewport.onpointermove = e => {
+            const idx = evCache.findIndex(ev => ev.pointerId === e.pointerId);
+            let prevEv = null;
+            if (idx !== -1) { prevEv = evCache[idx]; evCache[idx] = e; }
+            if (evCache.length === 2) {
+                const p1 = evCache[0], p2 = evCache[1];
+                const d = Math.sqrt((p1.clientX - p2.clientX)**2 + (p1.clientY - p2.clientY)**2);
+                if (prevDiff > 0) {
+                    const os = scale; scale = Math.min(Math.max(0.1, scale * (d / prevDiff)), 5);
+                    const mx = (p1.clientX + p2.clientX) / 2, my = (p1.clientY + p2.clientY) / 2;
+                    pointX = mx - ((mx - pointX) / os) * scale;
+                    pointY = my - ((my - pointY) / os) * scale;
+                    scheduleTransform();
+                }
+                prevDiff = d;
+            } else if (evCache.length === 1 && currentMode === 'move' && !isDraggingAny && prevEv) {
+                pointX += e.clientX - prevEv.clientX;
+                pointY += e.clientY - prevEv.clientY;
+                scheduleTransform();
+            }
+        };
+        const releasePointer = e => { evCache = evCache.filter(ev => ev.pointerId !== e.pointerId); if (evCache.length < 2) prevDiff = -1; viewport.classList.remove('grabbing'); };
+        window.onpointerup = releasePointer;
+        window.onpointercancel = releasePointer;
+
+        renderGrid();
+        loadGrid();
+        pointX = window.innerWidth / 2 - (grid.offsetWidth / 2);
+        pointY = window.innerHeight / 2 - (grid.offsetHeight / 2);
+        updateTransform();
+    </script>
+
+    <style>
+        #pwaInstallBtn {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: #000000; color: white; border: none; padding: 12px 24px;
+            border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: none; z-index: 10000; font-weight: bold; cursor: pointer;
+        }
+    </style>
+    <button id="pwaInstallBtn">Installer l'application</button>
+    <script>
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            document.getElementById('pwaInstallBtn').style.display = 'block';
+        });
+        document.getElementById('pwaInstallBtn').addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                deferredPrompt = null;
+                document.getElementById('pwaInstallBtn').style.display = 'none';
+            }
+        });
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW error:', err));
+            });
+        }
+    </script>
+<!-- mastercode:modules:start -->
+
+<style id="mastercode-signature-style">
+#mastercode-signature{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:calc(3px + env(safe-area-inset-bottom, 0px));
+  z-index:2147482000;
+  text-align:center;
+  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:10px;
+  font-weight:500;
+  letter-spacing:.06em;
+  color:rgba(148,163,184,.55);
+  pointer-events:none;
+  user-select:none;
+  -webkit-user-select:none;
+}
+</style>
+<div id="mastercode-signature">Made by Laiche Brahim</div>
+    
+
+<style id="mastercode-native-style">
+html{
+  touch-action:manipulation;
+  overscroll-behavior:none;
+}
+body{
+  overscroll-behavior:none;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
+}
+input,textarea,[contenteditable="true"]{
+  -webkit-user-select:text;
+  user-select:text;
+}
+</style>
+<script>
+(function(){
+  document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, { passive:false });
+  document.addEventListener('contextmenu', function(e){
+    var t = e.target;
+    if(t && t.closest && t.closest('input,textarea,[contenteditable="true"]')) return;
+    e.preventDefault();
+  });
+})();
+</script>
+    
+
+<style id="mastercode-update-style">
+#mastercode-update{
+  position:fixed;
+  top:calc(44px + env(safe-area-inset-top, 0px));
+  left:50%;
+  transform:translate(-50%,-300%);
+  z-index:2147483100;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  max-width:calc(100% - 24px);
+  padding:7px 8px 7px 14px;
+  border-radius:999px;
+  background:rgba(17,19,25,.96);
+  border:1px solid rgba(232,184,76,.4);
+  box-shadow:0 8px 28px rgba(0,0,0,.4);
+  color:#f3d58f;
+  font:600 11px/1.2 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  transition:transform .3s ease;
+}
+#mastercode-update.show{
+  transform:translate(-50%,0);
+}
+#mastercode-update button{
+  border:0;
+  border-radius:999px;
+  padding:7px 12px;
+  background:linear-gradient(135deg,#f5d88f,#e8b84c);
+  color:#17130a;
+  font:800 10px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  letter-spacing:.05em;
+  cursor:pointer;
+}
+</style>
+<div id="mastercode-update">
+  <span>Nouvelle version disponible</span>
+  <button type="button" id="mastercode-update-btn">RECHARGER</button>
+</div>
+<script>
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  var el = document.getElementById('mastercode-update');
+  var btn = document.getElementById('mastercode-update-btn');
+  if(!el || !btn) return;
+  function beep(notes){
+    try{
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if(!AC) return;
+      var ctx = window.__mcAudio || (window.__mcAudio = new AC());
+      if(ctx.state === 'suspended') ctx.resume().catch(function(){});
+      var t0 = ctx.currentTime + .01;
+      notes.forEach(function(freq, i){
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        var t = t0 + i * .12;
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(.08, t + .015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + .3);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + .32);
+      });
+    }catch(e){}
+  }
+  document.addEventListener('pointerdown', function(){
+    try{
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if(!AC) return;
+      var ctx = window.__mcAudio || (window.__mcAudio = new AC());
+      if(ctx.state === 'suspended') ctx.resume().catch(function(){});
+    }catch(e){}
+  }, { once:true });
+  var had = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if(had){
+      el.classList.add('show');
+      beep([523.25, 783.99]);
+    }
+    had = true;
+  });
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState !== 'visible') return;
+    navigator.serviceWorker.getRegistration().then(function(r){
+      if(r) r.update().catch(function(){});
+    }).catch(function(){});
+  });
+  btn.addEventListener('click', function(){ location.reload(); });
+})();
+</script>
+    
+
+<script>
+(function(){
+  if(!navigator.vibrate) return;
+  document.addEventListener('click', function(e){
+    var t = e.target && e.target.closest ? e.target.closest('button,[role="button"],a,input[type="button"],input[type="submit"]') : null;
+    if(t) navigator.vibrate(8);
+  }, true);
+})();
+</script>
+    
+
+<script>
+(function(){
+  var DARK = '#000000';
+  var LIGHT = '#ffffff';
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  function apply(){
+    var tag = document.querySelector('meta[name="theme-color"]');
+    if(!tag){
+      tag = document.createElement('meta');
+      tag.setAttribute('name', 'theme-color');
+      document.head.appendChild(tag);
+    }
+    tag.setAttribute('content', mq.matches ? DARK : LIGHT);
+  }
+  apply();
+  if(mq.addEventListener) mq.addEventListener('change', apply);
+})();
+</script>
+    
+
+<style id="mastercode-install-style">
+#mastercode-install{
+  position:fixed;
+  left:16px;
+  right:16px;
+  bottom:calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index:2147483000;
+  width:auto;
+  max-width:460px;
+  margin:0 auto;
+  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+#mastercode-install[hidden],
+#mastercode-install-panel[hidden]{
+  display:none!important;
+}
+#mastercode-install-button{
+  width:100%;
+  min-height:54px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:11px;
+  padding:13px 20px;
+  border:1px solid rgba(255,224,155,.5);
+  border-radius:17px;
+  color:#17130a;
+  background:linear-gradient(135deg,#f5d88f 0%,#e8b84c 48%,#d6a23a 100%);
+  box-shadow:0 9px 30px rgba(0,0,0,.3),0 0 24px rgba(232,184,76,.16);
+  font-size:13px;
+  font-weight:850;
+  letter-spacing:.045em;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .15s ease,filter .15s ease;
+}
+#mastercode-install-button:active{
+  transform:scale(.98);
+  filter:brightness(.95);
+}
+#mastercode-install-button svg{
+  width:21px;
+  height:21px;
+  flex-shrink:0;
+}
+#mastercode-install-panel{
+  margin-bottom:10px;
+  padding:17px;
+  color:#f8fafc;
+  background:rgba(17,19,25,.97);
+  border:1px solid rgba(232,184,76,.3);
+  border-radius:18px;
+  box-shadow:0 14px 45px rgba(0,0,0,.48);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+#mastercode-install-panel .mc-install-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:12px;
+  color:#f3d58f;
+  font-size:14px;
+  font-weight:850;
+}
+#mastercode-install-panel .mc-install-close{
+  width:30px;
+  height:30px;
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:9px;
+  color:#cbd5e1;
+  background:rgba(255,255,255,.06);
+  font-size:19px;
+  cursor:pointer;
+}
+#mastercode-install-panel .mc-install-step{
+  display:flex;
+  align-items:flex-start;
+  gap:11px;
+  margin-top:12px;
+  color:#cbd5e1;
+  font-size:12px;
+  line-height:1.55;
+}
+#mastercode-install-panel .mc-install-number{
+  width:25px;
+  height:25px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  border-radius:8px;
+  color:#e8b84c;
+  background:rgba(232,184,76,.12);
+  font-size:11px;
+  font-weight:900;
+}
+#mastercode-install-panel strong{
+  color:#fff;
+}
+#mastercode-install-panel .mc-install-note{
+  margin-top:13px;
+  padding-top:11px;
+  border-top:1px solid rgba(255,255,255,.08);
+  color:#94a3b8;
+  font-size:10px;
+  line-height:1.5;
+}
+@media(min-width:700px){
+  #mastercode-install{
+    bottom:24px;
+  }
+}
+</style>
+
+<div id="mastercode-install" hidden>
+  <div id="mastercode-install-panel" hidden>
+    <div class="mc-install-title">
+      <span>Installer sur votre téléphone</span>
+      <button type="button" class="mc-install-close" id="mastercode-install-close" aria-label="Fermer">×</button>
+    </div>
+    <div class="mc-install-step">
+      <span class="mc-install-number">1</span>
+      <span>Appuyez sur le bouton <strong>Partager</strong> de Safari.</span>
+    </div>
+    <div class="mc-install-step">
+      <span class="mc-install-number">2</span>
+      <span>Faites défiler les options et choisissez <strong>Sur l’écran d’accueil</strong>.</span>
+    </div>
+    <div class="mc-install-step">
+      <span class="mc-install-number">3</span>
+      <span>Appuyez sur <strong>Ajouter</strong> pour installer l’application.</span>
+    </div>
+    <div class="mc-install-note">L’application sera accessible directement depuis l’écran d’accueil de votre iPhone.</div>
+  </div>
+
+  <button type="button" id="mastercode-install-button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="4" y="3" width="16" height="18" rx="3"/>
+      <path d="M12 8v8M8.5 12.5 12 16l3.5-3.5"/>
+    </svg>
+    <span>INSTALLER L’APPLICATION</span>
+  </button>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  const root = document.getElementById('mastercode-install');
+  const button = document.getElementById('mastercode-install-button');
+  const panel = document.getElementById('mastercode-install-panel');
+  const close = document.getElementById('mastercode-install-close');
+
+  if(!root || !button || !panel) return;
+
+  const standalone = window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true;
+
+  if(standalone) return;
+
+  const ua = navigator.userAgent || '';
+  const isIOS = /iphone|ipad|ipod/i.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  let deferredPrompt = null;
+
+  if(isIOS){
+    root.hidden = false;
+  }
+
+  window.addEventListener('beforeinstallprompt', function(event){
+    event.preventDefault();
+    deferredPrompt = event;
+    root.hidden = false;
+    panel.hidden = true;
+  });
+
+  button.addEventListener('click', async function(){
+    if(deferredPrompt){
+      const promptEvent = deferredPrompt;
+      deferredPrompt = null;
+
+      try{
+        await promptEvent.prompt();
+        const result = await promptEvent.userChoice;
+
+        if(result && result.outcome === 'accepted'){
+          root.hidden = true;
+          panel.hidden = true;
+        }
+      }catch(error){
+        console.error('Installation PWA:', error);
+      }
+      return;
+    }
+
+    if(isIOS){
+      panel.hidden = !panel.hidden;
+    }
+  });
+
+  if(close){
+    close.addEventListener('click', function(){
+      panel.hidden = true;
+    });
+  }
+
+  window.addEventListener('appinstalled', function(){
+    root.hidden = true;
+    panel.hidden = true;
+    deferredPrompt = null;
+  });
+})();
+</script>
+    
+</body>
+</html>
