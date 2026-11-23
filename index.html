@@ -2,8 +2,8 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no,viewport-fit=cover">
-    <title>Super memo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SkeuoGrid Studio Pro - Professional Edition</title>
     <style>
         :root {
             --tile-size: 60px;
@@ -129,32 +129,6 @@
     <meta name="theme-color" content="#000000">
     <link rel="apple-touch-icon" href="icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
-<meta property="og:title" content="Super memo">
-<meta name="twitter:title" content="Super memo">
-<meta name="application-name" content="Super memo">
-<meta name="apple-mobile-web-app-title" content="Super memo">
-<meta name="description" content="Audio agenda intelligent">
-<meta property="og:description" content="Audio agenda intelligent">
-<meta name="twitter:description" content="Audio agenda intelligent">
-<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="./icon.png">
-<meta property="og:image" content="https://mekeirish.github.io/Super-memo/icon.png">
-<meta name="twitter:image" content="https://mekeirish.github.io/Super-memo/icon.png">
-<meta name="twitter:card" content="summary">
-<meta property="og:url" content="https://mekeirish.github.io/Super-memo/">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1320x2868.png">
-<link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1206x2622.png">
-<link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1290x2796.png">
-<link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1179x2556.png">
-<link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1284x2778.png">
-<link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1170x2532.png">
-<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1242x2688.png">
-<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./splash-828x1792.png">
-<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1125x2436.png">
-<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./splash-1242x2208.png">
-<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./splash-750x1334.png">
-<link rel="apple-touch-startup-image" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./splash-640x1136.png">
 </head>
 <body>
 
@@ -212,13 +186,20 @@
                 s.onended = () => pad.classList.remove('active-play');
                 s.start(0);
             };
+            const playFallback = () => {
+                const a = new Audio(src);
+                pad.classList.add('active-play');
+                a.onended = () => pad.classList.remove('active-play');
+                a.onerror = () => pad.classList.remove('active-play');
+                a.play().catch(err => { pad.classList.remove('active-play'); console.log('Audio error:', err); });
+            };
             const cached = audioBufferCache.get(src);
             if (cached) { play(cached); return; }
             fetch(src)
                 .then(res => res.arrayBuffer())
                 .then(buf => audioCtx.decodeAudioData(buf))
                 .then(decoded => { audioBufferCache.set(src, decoded); play(decoded); })
-                .catch(err => console.log('Audio error:', err));
+                .catch(err => { console.log('Decode error, fallback:', err); playFallback(); });
         }
         function animateSettle(el, firstRect) {
             el.style.transition = 'none';
@@ -303,31 +284,38 @@
         async function startRecording(slot) {
             try {
                 if (recorder && recorder.state === 'recording') return;
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false,
-                        channelCount: 1,
-                        sampleRate: 48000
-                    }
-                });
-                const types = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'];
-                const mimeType = types.find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
-                const options = { audioBitsPerSecond: 128000 };
-                if (mimeType) options.mimeType = mimeType;
-                recorder = new MediaRecorder(stream, options); chunks = [];
+                let stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: true
+                        }
+                    });
+                } catch (err) {
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                }
+                try {
+                    recorder = new MediaRecorder(stream, { audioBitsPerSecond: 128000 });
+                } catch (err) {
+                    recorder = new MediaRecorder(stream);
+                }
+                chunks = [];
                 const pad = createPadUI(slot, "REC", null, null);
                 pad.classList.add('recording'); activeObj = pad;
                 recorder.onstop = () => {
                     stream.getTracks().forEach(t => t.stop());
+                    pad.classList.remove('recording');
+                    const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+                    if (blob.size === 0) alert("Enregistrement vide : vérifie l'autorisation du micro");
                     const reader = new FileReader();
                     reader.onload = (e) => { pad.dataset.audio = e.target.result; saveGrid(); };
-                    reader.readAsDataURL(new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' }));
-                    pad.classList.remove('recording'); isRenaming = false; modal.style.display = 'flex';
+                    reader.readAsDataURL(blob);
+                    isRenaming = false; modal.style.display = 'flex';
                 };
                 recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-                recorder.start(250);
+                recorder.start();
                 pad.onpointerdown = e => { e.stopPropagation(); if(recorder.state==='recording') recorder.stop(); };
             } catch(e) { alert("Micro requis"); }
         }
@@ -561,398 +549,5 @@
             });
         }
     </script>
-<!-- mastercode:modules:start -->
-
-<style id="mastercode-signature-style">
-#mastercode-signature{
-  position:fixed;
-  left:0;
-  right:0;
-  bottom:calc(3px + env(safe-area-inset-bottom, 0px));
-  z-index:2147482000;
-  text-align:center;
-  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  font-size:10px;
-  font-weight:500;
-  letter-spacing:.06em;
-  color:rgba(148,163,184,.55);
-  pointer-events:none;
-  user-select:none;
-  -webkit-user-select:none;
-}
-</style>
-<div id="mastercode-signature">Made by Laiche Brahim</div>
-    
-
-<style id="mastercode-native-style">
-html{
-  touch-action:manipulation;
-  overscroll-behavior:none;
-}
-body{
-  overscroll-behavior:none;
-  -webkit-touch-callout:none;
-  -webkit-user-select:none;
-  user-select:none;
-}
-input,textarea,[contenteditable="true"]{
-  -webkit-user-select:text;
-  user-select:text;
-}
-</style>
-<script>
-(function(){
-  document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, { passive:false });
-  document.addEventListener('contextmenu', function(e){
-    var t = e.target;
-    if(t && t.closest && t.closest('input,textarea,[contenteditable="true"]')) return;
-    e.preventDefault();
-  });
-})();
-</script>
-    
-
-<style id="mastercode-update-style">
-#mastercode-update{
-  position:fixed;
-  top:calc(44px + env(safe-area-inset-top, 0px));
-  left:50%;
-  transform:translate(-50%,-300%);
-  z-index:2147483100;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  max-width:calc(100% - 24px);
-  padding:7px 8px 7px 14px;
-  border-radius:999px;
-  background:rgba(17,19,25,.96);
-  border:1px solid rgba(232,184,76,.4);
-  box-shadow:0 8px 28px rgba(0,0,0,.4);
-  color:#f3d58f;
-  font:600 11px/1.2 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  transition:transform .3s ease;
-}
-#mastercode-update.show{
-  transform:translate(-50%,0);
-}
-#mastercode-update button{
-  border:0;
-  border-radius:999px;
-  padding:7px 12px;
-  background:linear-gradient(135deg,#f5d88f,#e8b84c);
-  color:#17130a;
-  font:800 10px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  letter-spacing:.05em;
-  cursor:pointer;
-}
-</style>
-<div id="mastercode-update">
-  <span>Nouvelle version disponible</span>
-  <button type="button" id="mastercode-update-btn">RECHARGER</button>
-</div>
-<script>
-(function(){
-  if(!('serviceWorker' in navigator)) return;
-  var el = document.getElementById('mastercode-update');
-  var btn = document.getElementById('mastercode-update-btn');
-  if(!el || !btn) return;
-  function beep(notes){
-    try{
-      var AC = window.AudioContext || window.webkitAudioContext;
-      if(!AC) return;
-      var ctx = window.__mcAudio || (window.__mcAudio = new AC());
-      if(ctx.state === 'suspended') ctx.resume().catch(function(){});
-      var t0 = ctx.currentTime + .01;
-      notes.forEach(function(freq, i){
-        var osc = ctx.createOscillator();
-        var gain = ctx.createGain();
-        var t = t0 + i * .12;
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, t);
-        gain.gain.setValueAtTime(0.0001, t);
-        gain.gain.exponentialRampToValueAtTime(.08, t + .015);
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + .3);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(t);
-        osc.stop(t + .32);
-      });
-    }catch(e){}
-  }
-  document.addEventListener('pointerdown', function(){
-    try{
-      var AC = window.AudioContext || window.webkitAudioContext;
-      if(!AC) return;
-      var ctx = window.__mcAudio || (window.__mcAudio = new AC());
-      if(ctx.state === 'suspended') ctx.resume().catch(function(){});
-    }catch(e){}
-  }, { once:true });
-  var had = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.addEventListener('controllerchange', function(){
-    if(had){
-      el.classList.add('show');
-      beep([523.25, 783.99]);
-    }
-    had = true;
-  });
-  document.addEventListener('visibilitychange', function(){
-    if(document.visibilityState !== 'visible') return;
-    navigator.serviceWorker.getRegistration().then(function(r){
-      if(r) r.update().catch(function(){});
-    }).catch(function(){});
-  });
-  btn.addEventListener('click', function(){ location.reload(); });
-})();
-</script>
-    
-
-<script>
-(function(){
-  if(!navigator.vibrate) return;
-  document.addEventListener('click', function(e){
-    var t = e.target && e.target.closest ? e.target.closest('button,[role="button"],a,input[type="button"],input[type="submit"]') : null;
-    if(t) navigator.vibrate(8);
-  }, true);
-})();
-</script>
-    
-
-<script>
-(function(){
-  var DARK = '#000000';
-  var LIGHT = '#ffffff';
-  var mq = window.matchMedia('(prefers-color-scheme: dark)');
-  function apply(){
-    var tag = document.querySelector('meta[name="theme-color"]');
-    if(!tag){
-      tag = document.createElement('meta');
-      tag.setAttribute('name', 'theme-color');
-      document.head.appendChild(tag);
-    }
-    tag.setAttribute('content', mq.matches ? DARK : LIGHT);
-  }
-  apply();
-  if(mq.addEventListener) mq.addEventListener('change', apply);
-})();
-</script>
-    
-
-<style id="mastercode-install-style">
-#mastercode-install{
-  position:fixed;
-  left:16px;
-  right:16px;
-  bottom:calc(16px + env(safe-area-inset-bottom, 0px));
-  z-index:2147483000;
-  width:auto;
-  max-width:460px;
-  margin:0 auto;
-  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-}
-#mastercode-install[hidden],
-#mastercode-install-panel[hidden]{
-  display:none!important;
-}
-#mastercode-install-button{
-  width:100%;
-  min-height:54px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap:11px;
-  padding:13px 20px;
-  border:1px solid rgba(255,224,155,.5);
-  border-radius:17px;
-  color:#17130a;
-  background:linear-gradient(135deg,#f5d88f 0%,#e8b84c 48%,#d6a23a 100%);
-  box-shadow:0 9px 30px rgba(0,0,0,.3),0 0 24px rgba(232,184,76,.16);
-  font-size:13px;
-  font-weight:850;
-  letter-spacing:.045em;
-  cursor:pointer;
-  -webkit-tap-highlight-color:transparent;
-  transition:transform .15s ease,filter .15s ease;
-}
-#mastercode-install-button:active{
-  transform:scale(.98);
-  filter:brightness(.95);
-}
-#mastercode-install-button svg{
-  width:21px;
-  height:21px;
-  flex-shrink:0;
-}
-#mastercode-install-panel{
-  margin-bottom:10px;
-  padding:17px;
-  color:#f8fafc;
-  background:rgba(17,19,25,.97);
-  border:1px solid rgba(232,184,76,.3);
-  border-radius:18px;
-  box-shadow:0 14px 45px rgba(0,0,0,.48);
-  backdrop-filter:blur(18px);
-  -webkit-backdrop-filter:blur(18px);
-}
-#mastercode-install-panel .mc-install-title{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  margin-bottom:12px;
-  color:#f3d58f;
-  font-size:14px;
-  font-weight:850;
-}
-#mastercode-install-panel .mc-install-close{
-  width:30px;
-  height:30px;
-  border:1px solid rgba(255,255,255,.1);
-  border-radius:9px;
-  color:#cbd5e1;
-  background:rgba(255,255,255,.06);
-  font-size:19px;
-  cursor:pointer;
-}
-#mastercode-install-panel .mc-install-step{
-  display:flex;
-  align-items:flex-start;
-  gap:11px;
-  margin-top:12px;
-  color:#cbd5e1;
-  font-size:12px;
-  line-height:1.55;
-}
-#mastercode-install-panel .mc-install-number{
-  width:25px;
-  height:25px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  flex-shrink:0;
-  border-radius:8px;
-  color:#e8b84c;
-  background:rgba(232,184,76,.12);
-  font-size:11px;
-  font-weight:900;
-}
-#mastercode-install-panel strong{
-  color:#fff;
-}
-#mastercode-install-panel .mc-install-note{
-  margin-top:13px;
-  padding-top:11px;
-  border-top:1px solid rgba(255,255,255,.08);
-  color:#94a3b8;
-  font-size:10px;
-  line-height:1.5;
-}
-@media(min-width:700px){
-  #mastercode-install{
-    bottom:24px;
-  }
-}
-</style>
-
-<div id="mastercode-install" hidden>
-  <div id="mastercode-install-panel" hidden>
-    <div class="mc-install-title">
-      <span>Installer sur votre téléphone</span>
-      <button type="button" class="mc-install-close" id="mastercode-install-close" aria-label="Fermer">×</button>
-    </div>
-    <div class="mc-install-step">
-      <span class="mc-install-number">1</span>
-      <span>Appuyez sur le bouton <strong>Partager</strong> de Safari.</span>
-    </div>
-    <div class="mc-install-step">
-      <span class="mc-install-number">2</span>
-      <span>Faites défiler les options et choisissez <strong>Sur l’écran d’accueil</strong>.</span>
-    </div>
-    <div class="mc-install-step">
-      <span class="mc-install-number">3</span>
-      <span>Appuyez sur <strong>Ajouter</strong> pour installer l’application.</span>
-    </div>
-    <div class="mc-install-note">L’application sera accessible directement depuis l’écran d’accueil de votre iPhone.</div>
-  </div>
-
-  <button type="button" id="mastercode-install-button">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <rect x="4" y="3" width="16" height="18" rx="3"/>
-      <path d="M12 8v8M8.5 12.5 12 16l3.5-3.5"/>
-    </svg>
-    <span>INSTALLER L’APPLICATION</span>
-  </button>
-</div>
-
-<script>
-(function(){
-  'use strict';
-
-  const root = document.getElementById('mastercode-install');
-  const button = document.getElementById('mastercode-install-button');
-  const panel = document.getElementById('mastercode-install-panel');
-  const close = document.getElementById('mastercode-install-close');
-
-  if(!root || !button || !panel) return;
-
-  const standalone = window.matchMedia('(display-mode: standalone)').matches ||
-    window.navigator.standalone === true;
-
-  if(standalone) return;
-
-  const ua = navigator.userAgent || '';
-  const isIOS = /iphone|ipad|ipod/i.test(ua) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-  let deferredPrompt = null;
-
-  if(isIOS){
-    root.hidden = false;
-  }
-
-  window.addEventListener('beforeinstallprompt', function(event){
-    event.preventDefault();
-    deferredPrompt = event;
-    root.hidden = false;
-    panel.hidden = true;
-  });
-
-  button.addEventListener('click', async function(){
-    if(deferredPrompt){
-      const promptEvent = deferredPrompt;
-      deferredPrompt = null;
-
-      try{
-        await promptEvent.prompt();
-        const result = await promptEvent.userChoice;
-
-        if(result && result.outcome === 'accepted'){
-          root.hidden = true;
-          panel.hidden = true;
-        }
-      }catch(error){
-        console.error('Installation PWA:', error);
-      }
-      return;
-    }
-
-    if(isIOS){
-      panel.hidden = !panel.hidden;
-    }
-  });
-
-  if(close){
-    close.addEventListener('click', function(){
-      panel.hidden = true;
-    });
-  }
-
-  window.addEventListener('appinstalled', function(){
-    root.hidden = true;
-    panel.hidden = true;
-    deferredPrompt = null;
-  });
-})();
-</script>
-    
 </body>
 </html>
