@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
     <title>SkeuoGrid Studio Pro - Professional Edition</title>
     <style>
         :root {
@@ -11,17 +11,28 @@
             --led-red: #ff3030;
             --led-green: #39ff14;
             --led-blue: #00d4ff;
+            --led-amber: #ffb020;
+            --led-magenta: #ff4fd8;
             --radius: 12px;
             --anim-smooth: cubic-bezier(0.2, 0.8, 0.2, 1);
+            --panel: rgba(24, 25, 28, 0.92);
+            --panel-border: #34353a;
+            --text-dim: #8a8b90;
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --topbar-h: 60px;
+            --toolbar-h: 70px;
         }
 
-        * { box-sizing: border-box; touch-action: none; -webkit-user-select: none; }
+        * { box-sizing: border-box; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
             background: radial-gradient(circle at center, #151619 0%, #050505 100%);
             color: #ddd; overflow: hidden;
-            font-family: 'Segoe UI', sans-serif;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            overscroll-behavior: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
         #viewport { width: 100vw; height: 100vh; position: relative; overflow: hidden; cursor: crosshair; }
@@ -31,6 +42,7 @@
             position: absolute; top: 0; left: 0;
             transform-origin: 0 0; will-change: transform;
         }
+        #pan-zoom-layer.animating { transition: transform 0.4s var(--anim-smooth); }
 
         .grid-wrapper {
             display: grid; gap: 0px; background: transparent; padding: 500px; width: max-content;
@@ -41,20 +53,42 @@
             outline: 1px solid rgba(255, 255, 255, 0.03);
             border-radius: var(--radius);
         }
+        .grid-wrapper .slot.snap-target {
+            background: rgba(0, 212, 255, 0.18);
+            outline: 1px solid var(--led-blue);
+            border-radius: var(--radius);
+            box-shadow: inset 0 0 12px rgba(0, 212, 255, 0.35);
+        }
 
         .slot { width: var(--tile-size); height: var(--tile-size); position: relative; }
 
         .pad {
+            --pc: var(--pad-color, #4a4b52);
             position: absolute; inset: 2px;
-            background: linear-gradient(145deg, #3a3b40, #1e1f23);
+            background: linear-gradient(145deg, color-mix(in srgb, var(--pc) 38%, #34353a), color-mix(in srgb, var(--pc) 14%, #17181b));
             border-radius: var(--radius);
             display: flex; align-items: center; justify-content: center;
-            color: #fff; font-size: 12px; font-weight: 800; text-align: center; 
+            color: #fff; font-size: 11px; font-weight: 800; text-align: center; letter-spacing: 0.5px;
             z-index: 10; border: 1px solid #111;
             box-shadow: 2px 3px 6px rgba(0,0,0,0.8), inset 1px 1px 1px rgba(255,255,255,0.1);
-            cursor: pointer; will-change: transform;
-            transition: transform 0.3s var(--anim-smooth), box-shadow 0.3s ease;
+            cursor: pointer; will-change: transform; overflow: hidden;
+            transition: transform 0.3s var(--anim-smooth), box-shadow 0.25s ease, border-color 0.2s ease;
             height: calc(var(--tile-size) - 4px);
+        }
+        .pad::before {
+            content: ""; position: absolute; top: 6px; left: 6px;
+            width: 5px; height: 5px; border-radius: 50%;
+            background: var(--pad-color, #555);
+            box-shadow: 0 0 6px var(--pad-color, transparent);
+        }
+        .pad-label {
+            position: relative; max-width: 100%; padding: 0 5px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+        }
+        @supports not (background: color-mix(in srgb, red 50%, blue)) {
+            .pad { background: linear-gradient(145deg, #3a3b40, #1e1f23); }
+            .tool-btn.active { background: rgba(255,255,255,0.06); border-color: var(--tool-color); }
         }
 
         /* --- BUNDLE SYSTEM --- */
@@ -77,12 +111,26 @@
         .bundle-artwork img { width: 100%; height: 100%; object-fit: cover; }
         
         .bundle-header {
-            height: 30px; background: linear-gradient(145deg, #444, #222);
-            border: 1px solid #555; border-radius: var(--radius) var(--radius) 0 0;
-            display: flex; align-items: center; justify-content: center;
-            color: var(--led-blue); font-size: 10px; font-weight: bold;
+            height: 32px; min-width: calc(var(--tile-size) * 2);
+            background: linear-gradient(145deg, #444, #222);
+            border: 1px solid #555; border-top: 2px solid var(--bundle-color, #555);
+            border-radius: var(--radius) var(--radius) 0 0;
+            display: flex; align-items: center; gap: 2px; padding: 0 2px;
+            color: var(--bundle-color, var(--led-blue)); font-size: 10px; font-weight: bold; letter-spacing: 0.5px;
             pointer-events: auto; cursor: grab; width: 100%;
         }
+        .bundle-title {
+            flex: 1; min-width: 0; text-align: center;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+        }
+        .bundle-btn {
+            width: 28px; height: 28px; flex-shrink: 0; padding: 0;
+            display: flex; align-items: center; justify-content: center;
+            border: none; border-radius: 8px; background: transparent; color: inherit; cursor: pointer;
+        }
+        .bundle-btn svg { width: 14px; height: 14px; pointer-events: none; transition: transform 0.25s var(--anim-smooth); }
+        .bundle.collapsed .bundle-toggle svg { transform: rotate(-90deg); }
+        .bundle.seq-playing .bundle-play { color: var(--led-green); filter: drop-shadow(0 0 4px var(--led-green)); }
 
         .bundle-body {
             min-width: calc(var(--tile-size) * 2);
@@ -97,32 +145,229 @@
         }
 
         .bundle-body .pad { position: relative; inset: auto; }
+        .bundle.collapsed .bundle-body { display: none; }
+        .bundle.collapsed .bundle-header { border-radius: var(--radius); }
+        .bundle-body.drop-target { border-color: var(--led-blue); background: rgba(0, 212, 255, 0.08); }
+        .bundle.drop-target .bundle-header, .bundle.drop-flash .bundle-header { box-shadow: 0 0 14px var(--led-blue); border-color: var(--led-blue); }
+        body.mode-create .bundle-body { border-color: rgba(255, 59, 92, 0.6); }
+        body.mode-delete .pad, body.mode-delete .bundle-header { border-color: rgba(255, 138, 0, 0.8); }
 
-        .is-dragging { z-index: 9999 !important; opacity: 0.8; pointer-events: none; transition: none !important; }
-        .pad.active-play { border-color: var(--led-green); transform: scale(0.95); box-shadow: 0 0 15px var(--led-green); }
-        .pad.recording { background: linear-gradient(145deg, #a00, #600); animation: pulse-rec 0.6s infinite alternate; }
-
-        @keyframes pulse-rec { from { opacity: 1; } to { opacity: 0.5; } }
-
-        #controls {
-            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 10000;
-            display: flex; gap: 10px; background: rgba(20, 20, 20, 0.8); padding: 12px;
-            border-radius: 100px; border: 1px solid #444; backdrop-filter: blur(10px);
+        .is-dragging { z-index: 9999 !important; opacity: 0.88; pointer-events: none !important; transition: none !important; }
+        .is-dragging * { pointer-events: none !important; }
+        .pad.active-play {
+            border-color: var(--pad-color, var(--led-green));
+            box-shadow: 0 0 16px var(--pad-color, var(--led-green)), inset 0 0 10px rgba(255,255,255,0.15);
         }
-
-        .btn-mode {
-            padding: 8px 15px; border-radius: 50px; border: 1px solid #111;
-            background: #222; color: #555; font-size: 10px; font-weight: bold; cursor: pointer;
+        .pad.pressed { transform: scale(0.94); transition: transform 0.05s ease, box-shadow 0.05s ease; }
+        .pad.lifted { transform: scale(1.1); z-index: 50; box-shadow: 0 10px 24px rgba(0,0,0,0.7); transition: transform 0.2s var(--anim-smooth); }
+        .pad.recording {
+            background: linear-gradient(145deg, #b3002a, #5a0015);
+            border-color: var(--led-red);
+            animation: pulse-rec 0.8s infinite alternate;
         }
+        .pad.armed {
+            background: linear-gradient(145deg, #4a3a10, #221a06);
+            border-color: var(--led-amber); color: var(--led-amber);
+            animation: pulse-arm 1s infinite alternate;
+        }
+        .pad-meter {
+            position: absolute; left: 7px; right: 7px; bottom: 7px; height: 5px;
+            border-radius: 3px; background: rgba(0,0,0,0.55); overflow: hidden; pointer-events: none;
+        }
+        .pad-meter-fill {
+            position: absolute; inset: 0; transform-origin: left center; transform: scaleX(0);
+            background: linear-gradient(90deg, var(--led-green), var(--led-amber) 70%, var(--led-red));
+        }
+        .pad-meter-thr { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; opacity: 0.85; }
+        .removing { transform: scale(0.4) !important; opacity: 0; pointer-events: none !important; transition: transform 0.16s ease, opacity 0.16s ease !important; }
 
-        .btn-mode.active { color: white; border-color: #eee; }
-        .btn-mode.active-create { color: var(--led-blue); border-color: var(--led-blue); }
-        .btn-mode.active-delete { color: var(--led-red); border-color: var(--led-red); }
-        .btn-mode.active-bundle { color: #f0f; border-color: #f0f; }
+        @keyframes pulse-rec { from { box-shadow: 0 0 4px rgba(255,48,48,0.4); } to { box-shadow: 0 0 18px rgba(255,48,48,0.95); } }
+        @keyframes pulse-arm { from { box-shadow: 0 0 2px rgba(255,176,32,0.3); } to { box-shadow: 0 0 14px rgba(255,176,32,0.8); } }
 
-        #modal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: none; justify-content: center; align-items: center; z-index: 20000; }
-        .modal-content { background: #1a1b1e; padding: 30px; border-radius: 20px; border: 1px solid #333; text-align: center; }
-        input[type="text"] { background: #000; color: var(--led-green); border: 1px solid #444; padding: 12px; width: 220px; text-align: center; font-size: 16px; border-radius: 10px; }
+
+
+
+        input[type="text"] {
+            display: block; width: 100%;
+            background: #000; color: var(--led-green); border: 1px solid #444;
+            padding: 14px; text-align: center; font-size: 18px; font-weight: 700; letter-spacing: 1px;
+            border-radius: 12px; outline: none;
+            -webkit-user-select: text; user-select: text; touch-action: manipulation;
+        }
+        input[type="text"]:focus { border-color: var(--led-green); box-shadow: 0 0 0 3px rgba(57,255,20,0.15); }
+        .toggle-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 20px;
+            padding: 14px 0; border-bottom: 1px solid #2a2b2f;
+            font-size: 13px; color: #ccc; cursor: pointer;
+        }
+        .toggle-row input { display: none; }
+        .toggle-switch {
+            position: relative; width: 44px; height: 24px; flex-shrink: 0;
+            border-radius: 24px; background: #111; border: 1px solid #444;
+            box-shadow: inset 1px 2px 4px rgba(0,0,0,0.8);
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+        .toggle-switch::after {
+            content: ""; position: absolute; top: 2px; left: 2px;
+            width: 18px; height: 18px; border-radius: 50%;
+            background: linear-gradient(145deg, #555, #2a2a2e);
+            box-shadow: 1px 2px 4px rgba(0,0,0,0.8);
+            transition: transform 0.25s var(--anim-smooth), background 0.2s ease;
+        }
+        .toggle-row input:checked + .toggle-switch { background: rgba(57,255,20,0.15); border-color: var(--led-green); }
+        .toggle-row input:checked + .toggle-switch::after { transform: translateX(20px); background: linear-gradient(145deg, #7dff5c, #2bbf10); }
+        .toggle-sub { display: block; font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+        .range-row { padding: 14px 0; border-bottom: 1px solid #2a2b2f; font-size: 13px; color: #ccc; transition: opacity 0.2s ease; }
+        .range-row.disabled { opacity: 0.35; pointer-events: none; }
+        .range-head { display: flex; justify-content: space-between; align-items: center; }
+        .range-value { color: var(--led-green); font-weight: 800; font-variant-numeric: tabular-nums; }
+        .range-row input[type="range"] { width: 100%; margin: 14px 0 2px; accent-color: var(--led-green); touch-action: manipulation; }
+        button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
+        .topbar-btn:active, .project-chip:active, .tool-btn:active, .sheet-btn:active, .icon-btn:active, .color-swatch:active { transform: scale(0.93); }
+        .topbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 10000;
+            height: calc(var(--topbar-h) + var(--safe-top));
+            padding: calc(var(--safe-top) + 8px) 12px 8px;
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            background: linear-gradient(to bottom, rgba(5,5,5,0.85), rgba(5,5,5,0));
+            pointer-events: none;
+        }
+        .topbar > * { pointer-events: auto; }
+        .topbar-btn {
+            width: 44px; height: 44px; flex-shrink: 0; padding: 0;
+            border-radius: 50%; border: 1px solid var(--panel-border); background: var(--panel); color: #ddd;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transition: transform 0.1s ease;
+        }
+        .topbar-btn svg { width: 20px; height: 20px; }
+        .project-chip {
+            flex: 1; min-width: 0; max-width: 280px; height: 44px; padding: 0 16px;
+            border-radius: 22px; border: 1px solid var(--panel-border); background: var(--panel);
+            color: #fff; font-size: 14px; font-weight: 700;
+            display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transition: transform 0.1s ease;
+        }
+        #projectName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chip-caret { color: var(--text-dim); font-size: 11px; flex-shrink: 0; }
+        .toolbar {
+            position: fixed; left: 12px; right: 12px; bottom: calc(12px + var(--safe-bottom)); z-index: 10000;
+            height: var(--toolbar-h); padding: 6px;
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+            border-radius: 22px; background: var(--panel); border: 1px solid var(--panel-border);
+            backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        }
+        .tool-btn {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+            padding: 0; border: 1px solid transparent; border-radius: 16px; background: transparent;
+            color: var(--text-dim); font-size: 10px; font-weight: 800; letter-spacing: 1px; cursor: pointer;
+            transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+        }
+        .tool-btn svg { width: 22px; height: 22px; }
+        .tool-btn.active {
+            color: var(--tool-color);
+            background: color-mix(in srgb, var(--tool-color) 14%, transparent);
+            border-color: color-mix(in srgb, var(--tool-color) 45%, transparent);
+            box-shadow: 0 0 14px color-mix(in srgb, var(--tool-color) 22%, transparent);
+        }
+        .hint {
+            position: fixed; left: 50%; bottom: calc(var(--toolbar-h) + 24px + var(--safe-bottom)); z-index: 9999;
+            transform: translate(-50%, 8px); width: max-content; max-width: calc(100% - 32px);
+            padding: 8px 14px; border-radius: 14px; background: rgba(0,0,0,0.78); border: 1px solid #333;
+            color: #ccc; font-size: 12px; line-height: 1.4; text-align: center;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease, transform 0.3s var(--anim-smooth);
+        }
+        .hint.show { opacity: 1; transform: translate(-50%, 0); }
+        .toast {
+            position: fixed; left: 50%; top: calc(var(--topbar-h) + var(--safe-top) + 10px); z-index: 30000;
+            transform: translate(-50%, -10px); width: max-content; max-width: calc(100% - 32px);
+            padding: 10px 16px; border-radius: 14px; background: #222; border: 1px solid #444;
+            color: #fff; font-size: 13px; font-weight: 600; text-align: center;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.25s ease, transform 0.25s var(--anim-smooth);
+        }
+        .toast.show { opacity: 1; transform: translate(-50%, 0); }
+        .sheet-backdrop {
+            position: fixed; inset: 0; z-index: 19000; background: rgba(0,0,0,0.55);
+            opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+        }
+        .sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+        .sheet {
+            position: fixed; left: 0; right: 0; bottom: var(--kb, 0px); z-index: 20000;
+            max-height: 85vh; max-height: 85dvh; overflow-y: auto; overscroll-behavior: contain;
+            padding: 0 18px calc(18px + var(--safe-bottom));
+            background: #1a1b1e; border-top: 1px solid var(--panel-border);
+            border-radius: 22px 22px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,0.6);
+            transform: translateY(105%); visibility: hidden;
+            transition: transform 0.32s var(--anim-smooth), visibility 0s linear 0.32s;
+        }
+        .sheet.open { transform: translateY(var(--drag, 0px)); visibility: visible; transition: transform 0.32s var(--anim-smooth), visibility 0s; }
+        .sheet, .sheet * { touch-action: manipulation; }
+        .sheet-handle { height: 24px; display: flex; align-items: center; justify-content: center; cursor: grab; }
+        .sheet-handle::after { content: ""; width: 40px; height: 5px; border-radius: 3px; background: #444; }
+        .sheet-title {
+            font-size: 12px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
+            color: var(--led-blue); text-align: center; margin: 2px 0 16px;
+        }
+        .sheet-section {
+            font-size: 10px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase;
+            color: var(--text-dim); margin: 18px 0 10px;
+        }
+        .sheet-text { color: #bbb; font-size: 14px; line-height: 1.5; text-align: center; margin: 4px 0; }
+        .sheet-actions { display: flex; gap: 10px; margin-top: 14px; }
+        .sheet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+        .sheet-btn {
+            flex: 1; min-height: 48px; padding: 0 12px;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            border-radius: 14px; border: 1px solid #3a3b40;
+            background: linear-gradient(145deg, #2e2f34, #1d1e22);
+            color: #ddd; font-size: 13px; font-weight: 700; cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+        .sheet-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+        .sheet-btn.primary { background: linear-gradient(145deg, #1f6b10, #124a08); border-color: var(--led-green); color: #fff; }
+        .sheet-btn.danger { color: #ff7070; border-color: #5a2a2a; }
+        .color-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+        .color-swatch {
+            width: 34px; height: 34px; padding: 0; border-radius: 50%; cursor: pointer;
+            border: 2px solid #2a2b2f; background: var(--sw);
+            box-shadow: inset 0 0 0 2px rgba(0,0,0,0.4);
+            transition: transform 0.1s ease, border-color 0.15s ease;
+        }
+        .color-swatch.selected { border-color: #fff; box-shadow: inset 0 0 0 2px rgba(0,0,0,0.4), 0 0 12px var(--sw); }
+        .project-list { display: flex; flex-direction: column; gap: 8px; }
+        .project-item {
+            display: flex; align-items: center; gap: 6px;
+            padding: 6px 6px 6px 14px; border-radius: 14px;
+            background: #222327; border: 1px solid #2e2f34;
+        }
+        .project-item.current { border-color: var(--led-green); box-shadow: inset 3px 0 0 var(--led-green); }
+        .project-open {
+            flex: 1; min-width: 0; padding: 8px 0; text-align: left; cursor: pointer;
+            background: none; border: none; color: #eee; font-size: 14px; font-weight: 700;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .project-meta { display: block; margin-top: 2px; font-size: 11px; font-weight: 500; color: var(--text-dim); }
+        .icon-btn {
+            width: 40px; height: 40px; flex-shrink: 0; padding: 0; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 12px; border: 1px solid #333; background: #1a1b1e; color: #bbb;
+            transition: transform 0.1s ease;
+        }
+        .icon-btn svg { width: 18px; height: 18px; }
+        .icon-btn.danger { color: #ff7070; }
+        .storage-info { margin-top: 16px; font-size: 11px; color: var(--text-dim); text-align: center; }
+        @media (min-width: 768px) {
+            .toolbar { left: 50%; right: auto; width: 440px; transform: translateX(-50%); }
+            .sheet { left: 50%; right: auto; width: 480px; bottom: calc(24px + var(--kb, 0px)); border-radius: 22px; border: 1px solid var(--panel-border); transform: translate(-50%, 120%); }
+            .sheet.open { transform: translate(-50%, var(--drag, 0px)); }
+        }
     </style>
 
     <link rel="manifest" href="manifest.json">
@@ -137,69 +382,186 @@
             <div class="grid-wrapper" id="grid"></div>
         </div>
     </div>
-
-    <div id="controls">
-        <div id="bundleBtn" class="btn-mode" onclick="setMode('bundle')">BUNDLE</div>
-        <div id="createBtn" class="btn-mode" onclick="setMode('create')">CREATE</div>
-        <div id="deleteBtn" class="btn-mode" onclick="setMode('delete')">DELETE</div>
-        <div id="moveBtn" class="btn-mode active" onclick="setMode('move')">GRID</div>
+    <header id="topbar" class="topbar">
+        <button class="topbar-btn" id="fitBtn" onclick="fitToContent(true)" aria-label="Centrer sur mes éléments">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="project-chip" id="projectChip" onclick="openProjects()" aria-label="Projets">
+            <span id="projectName">Projet</span><span class="chip-caret">▼</span>
+        </button>
+        <button class="topbar-btn" id="optionsBtn" onclick="openOptions()" aria-label="Options">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        </button>
+    </header>
+    <nav id="toolbar" class="toolbar">
+        <button class="tool-btn active" id="moveBtn" data-mode="move" style="--tool-color: var(--led-green)" onclick="setMode('move')">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>JOUER</span>
+        </button>
+        <button class="tool-btn" id="createBtn" data-mode="create" style="--tool-color: #ff3b5c" onclick="setMode('create')">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg><span>CRÉER</span>
+        </button>
+        <button class="tool-btn" id="bundleBtn" data-mode="bundle" style="--tool-color: var(--led-magenta)" onclick="setMode('bundle')">
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg><span>BUNDLE</span>
+        </button>
+        <button class="tool-btn" id="deleteBtn" data-mode="delete" style="--tool-color: #ff8a00" onclick="setMode('delete')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>SUPPR</span>
+        </button>
+    </nav>
+    <div id="hint" class="hint"></div>
+    <div id="toast" class="toast" role="status"></div>
+    <div id="sheetBackdrop" class="sheet-backdrop" onclick="closeSheet()"></div>
+    <div id="sheet" class="sheet" role="dialog" aria-modal="true">
+        <div class="sheet-handle"></div>
+        <div class="sheet-title"></div>
+        <div class="sheet-body"></div>
     </div>
 
-    <div id="modal">
-        <div class="modal-content">
-            <input type="text" id="titleInput" placeholder="VALEUR">
-            <br><br>
-            <button style="padding:10px 25px; border-radius: 10px; cursor:pointer" onclick="finalizeCreation()">OK</button>
-        </div>
-    </div>
+
 
     <input type="file" id="artPicker" accept="image/*" style="display:none">
 
     <script>
         const layer = document.getElementById('pan-zoom-layer');
         const grid = document.getElementById('grid');
-        const modal = document.getElementById('modal');
         const viewport = document.getElementById('viewport');
-        const titleInput = document.getElementById('titleInput');
         const artPicker = document.getElementById('artPicker');
+        const sheet = document.getElementById('sheet');
+        const sheetBackdrop = document.getElementById('sheetBackdrop');
+        const toastEl = document.getElementById('toast');
+        const hintEl = document.getElementById('hint');
+        const projectNameEl = document.getElementById('projectName');
 
-        let audioCtx, recorder, chunks = [], evCache = [], prevDiff = -1;
+        let audioCtx, evCache = [], prevDiff = -1;
         let scale = 1, pointX = 0, pointY = 0;
-        let currentMode = 'move', activeObj = null, creationTargetSlot = null, isRenaming = false;
-        let gridCols = 30, gridRows = 30, isDraggingAny = false;
+        let currentMode = 'move', isDraggingAny = false;
+        let gridCols = 30, gridRows = 30;
+        let currentProject = null, activeRecording = null;
+        let tapStart = null, lastTap = null;
 
         const CELL_SIZE = 60;
+        const GRID_PADDING = 500;
+        const PAD_COLORS = ['', '#ff3b5c', '#ff8a00', '#ffd400', '#39ff14', '#00d4ff', '#7a5cff', '#ff4fd8'];
+        const settings = (() => {
+            const defaults = { sound: true, haptic: true, threshold: true, autoStop: true, trim: true, sensitivity: 50 };
+            try { return Object.assign(defaults, JSON.parse(localStorage.getItem('skeuoGridSettings') || '{}')); }
+            catch (e) { return defaults; }
+        })();
+        const ICONS = {
+            chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+            play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+            edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>',
+            copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
+            trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+            image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>',
+            plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'
+        };
+        let dbPromise = null;
+        let saveTimer = 0;
+        let sheetState = null;
+        let hintTimer = 0;
+        let toastTimer = 0;
+        const activeVoices = new Map();
+        const blobUrlCache = new Map();
 
         function initAudio() {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             if (audioCtx.state === 'suspended') audioCtx.resume();
         }
         const audioBufferCache = new Map();
-        function playPad(pad) {
+        async function getSoundBuffer(id) {
+            if (!id) return null;
+            if (audioBufferCache.has(id)) return audioBufferCache.get(id);
             initAudio();
-            const src = pad.dataset.audio;
-            const play = (decoded) => {
-                const s = audioCtx.createBufferSource();
-                s.buffer = decoded;
-                s.connect(audioCtx.destination);
+            const blob = await getBlob(id);
+            if (!blob) return null;
+            const buf = await blob.arrayBuffer();
+            const decoded = await new Promise((resolve, reject) => audioCtx.decodeAudioData(buf, resolve, reject));
+            audioBufferCache.set(id, decoded);
+            return decoded;
+        }
+        async function preloadSounds() {
+            const ids = [...new Set([...grid.querySelectorAll('.pad')].map(p => p.dataset.sound).filter(Boolean))];
+            for (const id of ids) {
+                try { await getSoundBuffer(id); } catch (e) { console.log('Preload error:', id, e); }
+            }
+        }
+        function stopPadVoice(pad) {
+            const src = activeVoices.get(pad);
+            if (!src) return;
+            src.onended = null;
+            try { src.stop(); } catch (e) {}
+            activeVoices.delete(pad);
+            pad.classList.remove('active-play');
+        }
+        function stopAllVoices() {
+            [...activeVoices.keys()].forEach(stopPadVoice);
+            grid.querySelectorAll('.bundle').forEach(b => { if (b._seq) b._seq.cancelled = true; b._seq = null; b.classList.remove('seq-playing'); });
+        }
+        function playPad(pad, onEnded) {
+            const id = pad.dataset.sound;
+            if (!id) {
+                if (onEnded) onEnded(); else showToast('Ce pad n’a pas encore de son');
+                return;
+            }
+            initAudio();
+            const start = (decoded) => {
+                const prev = activeVoices.get(pad);
+                if (prev) {
+                    const cb = prev._onEnded;
+                    prev.onended = null;
+                    try { prev.stop(); } catch (e) {}
+                    if (cb) setTimeout(cb, 0);
+                }
+                const src = audioCtx.createBufferSource();
+                src.buffer = decoded;
+                src.connect(audioCtx.destination);
+                src._onEnded = onEnded;
+                activeVoices.set(pad, src);
                 pad.classList.add('active-play');
-                s.onended = () => pad.classList.remove('active-play');
-                s.start(0);
+                src.onended = () => {
+                    if (activeVoices.get(pad) === src) { activeVoices.delete(pad); pad.classList.remove('active-play'); }
+                    if (src._onEnded) src._onEnded();
+                };
+                src.start(0);
             };
-            const playFallback = () => {
-                const a = new Audio(src);
-                pad.classList.add('active-play');
-                a.onended = () => pad.classList.remove('active-play');
-                a.onerror = () => pad.classList.remove('active-play');
-                a.play().catch(err => { pad.classList.remove('active-play'); console.log('Audio error:', err); });
+            const cached = audioBufferCache.get(id);
+            if (cached) { start(cached); return; }
+            getSoundBuffer(id).then(decoded => {
+                if (decoded) start(decoded); else if (onEnded) onEnded();
+            }).catch(err => {
+                console.log('Decode error, fallback:', err);
+                blobUrl(id).then(url => {
+                    const done = () => { pad.classList.remove('active-play'); if (onEnded) onEnded(); };
+                    if (!url) { done(); return; }
+                    const a = new Audio(url);
+                    pad.classList.add('active-play');
+                    a.onended = done; a.onerror = done;
+                    a.play().catch(done);
+                });
+            });
+        }
+        function playBundle(bun) {
+            if (bun._seq) {
+                bun._seq.cancelled = true; bun._seq = null;
+                bun.classList.remove('seq-playing');
+                bun.querySelectorAll('.pad').forEach(stopPadVoice);
+                uiFeedback('tap');
+                return;
+            }
+            const pads = [...bun.querySelectorAll('.bundle-body > .pad')].filter(p => p.dataset.sound);
+            if (!pads.length) { showToast('Ce bundle ne contient aucun son'); uiFeedback('error'); return; }
+            const seq = { cancelled: false };
+            bun._seq = seq;
+            bun.classList.add('seq-playing');
+            let i = 0;
+            const next = () => {
+                if (seq.cancelled) return;
+                if (i >= pads.length) { bun._seq = null; bun.classList.remove('seq-playing'); return; }
+                const p = pads[i++];
+                if (!p.isConnected) { next(); return; }
+                playPad(p, () => setTimeout(next, 40));
             };
-            const cached = audioBufferCache.get(src);
-            if (cached) { play(cached); return; }
-            fetch(src)
-                .then(res => res.arrayBuffer())
-                .then(buf => audioCtx.decodeAudioData(buf))
-                .then(decoded => { audioBufferCache.set(src, decoded); play(decoded); })
-                .catch(err => { console.log('Decode error, fallback:', err); playFallback(); });
+            next();
         }
         function animateSettle(el, firstRect) {
             el.style.transition = 'none';
@@ -212,270 +574,1127 @@
             el.style.transition = '';
             el.style.transform = '';
         }
-
-        function uiFeedback(type) {
-            initAudio();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            if (type === 'delete') { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(220, audioCtx.currentTime); gain.gain.setValueAtTime(0.3, audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2); osc.start(); osc.stop(audioCtx.currentTime + 0.2); }
-            if (navigator.vibrate) navigator.vibrate(40);
+        function findNearestFreeSlot(x, y, self) {
+            const isFree = (s) => s && (!s.hasChildNodes() || (s.childNodes.length === 1 && s.firstChild === self));
+            x = Math.min(Math.max(0, x), gridCols - 1);
+            y = Math.min(Math.max(0, y), gridRows - 1);
+            const maxR = Math.max(gridCols, gridRows);
+            for (let r = 0; r <= maxR; r++) {
+                let best = null, bestD = Infinity;
+                for (let iy = y - r; iy <= y + r; iy++) {
+                    for (let ix = x - r; ix <= x + r; ix++) {
+                        if (Math.max(Math.abs(ix - x), Math.abs(iy - y)) !== r) continue;
+                        if (ix < 0 || iy < 0 || ix >= gridCols || iy >= gridRows) continue;
+                        const s = grid.children[iy * gridCols + ix];
+                        if (isFree(s)) {
+                            const d = (ix - x) ** 2 + (iy - y) ** 2;
+                            if (d < bestD) { bestD = d; best = s; }
+                        }
+                    }
+                }
+                if (best) return best;
+            }
+            return null;
         }
 
-        function saveGrid() {
+        function uiFeedback(type) {
+            const haptics = {
+                tap: 8, toggle: 10, open: 10, close: 8, play: 10, drop: 15, hold: 25,
+                confirm: [10, 30, 10], cancel: 20, rec: 40, stop: [20, 40, 20],
+                delete: [30, 40, 30], error: [60, 50, 60]
+            };
+            if (settings.haptic && navigator.vibrate) navigator.vibrate(haptics[type] || 10);
+            if (!settings.sound || type === 'play') return;
+            initAudio();
+            const now = audioCtx.currentTime;
+            const tone = (freq, start, dur, wave = 'sine', vol = 0.12, endFreq = 0) => {
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                const t0 = now + start;
+                osc.type = wave;
+                osc.frequency.setValueAtTime(freq, t0);
+                if (endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
+                g.gain.setValueAtTime(0.0001, t0);
+                g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+                osc.connect(g); g.connect(audioCtx.destination);
+                osc.start(t0); osc.stop(t0 + dur + 0.02);
+            };
+            switch (type) {
+                case 'tap': tone(1400, 0, 0.04, 'triangle', 0.05); break;
+                case 'toggle': tone(1000, 0, 0.035, 'triangle', 0.07); tone(1500, 0.035, 0.035, 'triangle', 0.05); break;
+                case 'open': tone(600, 0, 0.09, 'sine', 0.08, 1000); break;
+                case 'close': tone(1000, 0, 0.09, 'sine', 0.08, 600); break;
+                case 'drop': tone(160, 0, 0.09, 'sine', 0.18, 90); tone(2200, 0, 0.02, 'triangle', 0.04); break;
+                case 'hold': tone(500, 0, 0.12, 'sine', 0.1, 850); break;
+                case 'confirm': tone(660, 0, 0.08, 'sine', 0.1); tone(990, 0.07, 0.12, 'sine', 0.1); break;
+                case 'cancel': tone(520, 0, 0.08, 'sine', 0.09); tone(390, 0.07, 0.12, 'sine', 0.09); break;
+                case 'rec': tone(880, 0, 0.07, 'sine', 0.1); break;
+                case 'stop': tone(880, 0, 0.06, 'sine', 0.1); tone(587, 0.06, 0.1, 'sine', 0.1); break;
+                case 'delete': tone(520, 0, 0.2, 'triangle', 0.14, 110); tone(130, 0.02, 0.18, 'sawtooth', 0.04, 60); break;
+                case 'error': tone(220, 0, 0.1, 'square', 0.05); tone(180, 0.13, 0.14, 'square', 0.05); break;
+            }
+        }
+        function openDB() {
+            if (dbPromise) return dbPromise;
+            dbPromise = new Promise((resolve, reject) => {
+                const req = indexedDB.open('skeuoGridDB', 1);
+                req.onupgradeneeded = () => {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs');
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => { dbPromise = null; reject(req.error); };
+            });
+            return dbPromise;
+        }
+        async function dbOp(storeName, mode, action) {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(storeName, mode);
+                const req = action(tx.objectStore(storeName));
+                tx.oncomplete = () => resolve(req ? req.result : undefined);
+                tx.onerror = () => reject(tx.error);
+                tx.onabort = () => reject(tx.error);
+            });
+        }
+        function newId(prefix) {
+            return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        }
+        async function putBlob(blob) {
+            const id = newId('b');
+            await dbOp('blobs', 'readwrite', s => s.put(blob, id));
+            return id;
+        }
+        function getBlob(id) {
+            return dbOp('blobs', 'readonly', s => s.get(id));
+        }
+        async function blobUrl(id) {
+            if (blobUrlCache.has(id)) return blobUrlCache.get(id);
+            const blob = await getBlob(id);
+            if (!blob) return '';
+            const url = URL.createObjectURL(blob);
+            blobUrlCache.set(id, url);
+            return url;
+        }
+        function padData(p) {
+            return { name: p.dataset.name || 'NEW', color: p.dataset.color || '', sound: p.dataset.sound || '' };
+        }
+        function isRecordingPad(p) {
+            return p.classList.contains('armed') || p.classList.contains('recording');
+        }
+        function serializeProject() {
             const data = { pads: [], bundles: [] };
-            document.querySelectorAll('.slot > .pad').forEach(pad => {
-                data.pads.push({ name: pad.innerText, audio: pad.dataset.audio, width: pad.style.width, x: pad.parentElement.dataset.x, y: pad.parentElement.dataset.y });
+            grid.querySelectorAll('.slot > .pad').forEach(p => {
+                if (isRecordingPad(p)) return;
+                data.pads.push(Object.assign(padData(p), { x: +p.parentElement.dataset.x, y: +p.parentElement.dataset.y }));
             });
-            document.querySelectorAll('.slot > .bundle').forEach(bun => {
-                const innerPads = [];
-                bun.querySelectorAll('.pad').forEach(p => innerPads.push({ name: p.innerText, audio: p.dataset.audio, width: p.style.width }));
-                data.bundles.push({ name: bun.querySelector('.bundle-header').innerText, x: bun.parentElement.dataset.x, y: bun.parentElement.dataset.y, pads: innerPads, image: bun.querySelector('.bundle-artwork img').src });
+            grid.querySelectorAll('.slot > .bundle').forEach(b => {
+                data.bundles.push({
+                    name: b.dataset.name || 'BUNDLE',
+                    color: b.dataset.color || '',
+                    collapsed: b.classList.contains('collapsed'),
+                    image: b.dataset.image || '',
+                    x: +b.parentElement.dataset.x,
+                    y: +b.parentElement.dataset.y,
+                    pads: [...b.querySelectorAll('.bundle-body > .pad')].filter(p => !isRecordingPad(p)).map(padData)
+                });
             });
+            return data;
+        }
+        function saveProject() {
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(saveProjectNow, 300);
+        }
+        async function saveProjectNow() {
+            clearTimeout(saveTimer);
+            saveTimer = 0;
+            if (!currentProject) return;
+            const { id, name } = currentProject;
+            const data = serializeProject();
             try {
-                localStorage.setItem('skeuoGridData_V7', JSON.stringify(data));
-            } catch (err) {
-                console.log('Save error:', err);
-                alert("Stockage plein : impossible de sauvegarder");
+                await dbOp('projects', 'readwrite', store => {
+                    const req = store.get(id);
+                    req.onsuccess = () => {
+                        const prev = req.result || { id, created: Date.now() };
+                        store.put(Object.assign(prev, { name, updated: Date.now(), data }));
+                    };
+                    return null;
+                });
+            } catch (e) {
+                console.log('Save error:', e);
+                showToast('Sauvegarde impossible');
+            }
+        }
+        async function flushSave() {
+            if (saveTimer) await saveProjectNow();
+        }
+        async function listProjects() {
+            const all = await dbOp('projects', 'readonly', s => s.getAll());
+            return (all || []).sort((a, b) => (a.created || 0) - (b.created || 0));
+        }
+        async function createProject(name, data) {
+            const p = { id: newId('p'), name, created: Date.now(), updated: Date.now(), data: data || { pads: [], bundles: [] } };
+            await dbOp('projects', 'readwrite', s => s.put(p));
+            return p;
+        }
+        async function renameProject(id, name) {
+            if (currentProject && currentProject.id === id) {
+                currentProject.name = name;
+                projectNameEl.textContent = name;
+                await saveProjectNow();
+                return;
+            }
+            await dbOp('projects', 'readwrite', s => {
+                const req = s.get(id);
+                req.onsuccess = () => { if (req.result) s.put(Object.assign(req.result, { name })); };
+                return null;
+            });
+        }
+        function slotAt(x, y) {
+            if (x < 0 || y < 0 || x >= gridCols || y >= gridRows) return null;
+            return grid.children[y * gridCols + x] || null;
+        }
+        function clearGrid() {
+            stopAllVoices();
+            grid.querySelectorAll('.slot > *').forEach(el => el.remove());
+        }
+        async function loadProject(id) {
+            await flushSave();
+            const p = await dbOp('projects', 'readonly', s => s.get(id));
+            if (!p) return false;
+            clearGrid();
+            currentProject = { id: p.id, name: p.name };
+            try { localStorage.setItem('skeuoGridCurrent', p.id); } catch (e) {}
+            projectNameEl.textContent = p.name;
+            const data = p.data || {};
+            (data.pads || []).forEach(d => {
+                const slot = slotAt(d.x, d.y);
+                if (slot && !slot.hasChildNodes()) createPadUI(slot, d);
+            });
+            (data.bundles || []).forEach(d => {
+                const slot = slotAt(d.x, d.y);
+                if (!slot || slot.hasChildNodes()) return;
+                const bun = createBundleUI(slot, d);
+                const body = bun.querySelector('.bundle-body');
+                (d.pads || []).forEach(pd => body.appendChild(createPadUI(null, pd)));
+            });
+            fitToContent(false);
+            updateEmptyHint();
+            preloadSounds();
+            return true;
+        }
+        async function migrateLegacy() {
+            if (localStorage.getItem('skeuoGridMigrated')) return null;
+            const raw = localStorage.getItem('skeuoGridData_V7');
+            if (!raw) { localStorage.setItem('skeuoGridMigrated', '1'); return null; }
+            let old;
+            try { old = JSON.parse(raw); } catch (e) { localStorage.setItem('skeuoGridMigrated', '1'); return null; }
+            const toBlobId = async (dataUrl) => {
+                if (!dataUrl || !String(dataUrl).startsWith('data:')) return '';
+                try { return await putBlob(await (await fetch(dataUrl)).blob()); } catch (e) { return ''; }
+            };
+            const data = { pads: [], bundles: [] };
+            for (const p of old.pads || []) {
+                data.pads.push({ name: p.name || 'NEW', color: '', sound: await toBlobId(p.audio), x: +p.x, y: +p.y });
+            }
+            for (const b of old.bundles || []) {
+                const pads = [];
+                for (const ip of b.pads || []) pads.push({ name: ip.name || 'NEW', color: '', sound: await toBlobId(ip.audio) });
+                const image = b.image && b.image.includes('data:image') ? await toBlobId(b.image) : '';
+                data.bundles.push({ name: b.name || 'BUNDLE', color: '', collapsed: false, image, x: +b.x, y: +b.y, pads });
+            }
+            const project = await createProject('Projet 1', data);
+            localStorage.setItem('skeuoGridMigrated', '1');
+            return project;
+        }
+        async function gcBlobs() {
+            try {
+                const projects = await listProjects();
+                const used = new Set();
+                projects.forEach(p => {
+                    const d = p.data || {};
+                    (d.pads || []).forEach(x => { if (x.sound) used.add(x.sound); });
+                    (d.bundles || []).forEach(b => {
+                        if (b.image) used.add(b.image);
+                        (b.pads || []).forEach(x => { if (x.sound) used.add(x.sound); });
+                    });
+                });
+                const keys = await dbOp('blobs', 'readonly', s => s.getAllKeys());
+                const orphans = (keys || []).filter(k => !used.has(k));
+                if (orphans.length) await dbOp('blobs', 'readwrite', s => { orphans.forEach(k => s.delete(k)); return null; });
+            } catch (e) { console.log('GC error:', e); }
+        }
+        async function initProjects() {
+            try {
+                await migrateLegacy();
+                let projects = await listProjects();
+                if (!projects.length) projects = [await createProject('Projet 1')];
+                let savedId = null;
+                try { savedId = localStorage.getItem('skeuoGridCurrent'); } catch (e) {}
+                const target = projects.find(p => p.id === savedId) || projects[projects.length - 1];
+                await loadProject(target.id);
+                gcBlobs();
+            } catch (e) {
+                console.log('Init error:', e);
+                showToast('Stockage indisponible (navigation privée ?)', 4000);
+                projectNameEl.textContent = 'Hors ligne';
+                updateEmptyHint();
             }
         }
 
-        function loadGrid() {
-            const raw = localStorage.getItem('skeuoGridData_V7');
-            if (!raw) return;
-            const data = JSON.parse(raw);
-            data.pads.forEach(p => {
-                const slot = document.querySelector(`.slot[data-x="${p.x}"][data-y="${p.y}"]`);
-                if(slot) createPadUI(slot, p.name, p.audio, p.width);
-            });
-            data.bundles.forEach(b => {
-                const slot = document.querySelector(`.slot[data-x="${b.x}"][data-y="${b.y}"]`);
-                if(slot) {
-                    const bun = createBundleUI(slot, b.name);
-                    if(b.image && b.image.includes('data:image')) {
-                        bun.querySelector('.bundle-artwork').style.display = 'block';
-                        bun.querySelector('.bundle-artwork img').src = b.image;
-                    }
-                    b.pads.forEach(ip => {
-                        const pUI = createPadUI(null, ip.name, ip.audio, ip.width);
-                        bun.querySelector('.bundle-body').appendChild(pUI);
-                    });
-                }
-            });
-        }
+
 
         function renderGrid() {
             grid.style.gridTemplateColumns = `repeat(${gridCols}, var(--tile-size))`;
+            const frag = document.createDocumentFragment();
             for (let i = 0; i < gridCols * gridRows; i++) {
                 const slot = document.createElement('div');
                 slot.className = 'slot';
                 slot.dataset.x = i % gridCols; slot.dataset.y = Math.floor(i / gridCols);
-                slot.onpointerdown = (e) => {
-                    if (currentMode === 'create' && !slot.hasChildNodes()) {
-                        e.stopPropagation(); creationTargetSlot = slot; startRecording(slot);
-                    } else if (currentMode === 'bundle' && !slot.hasChildNodes()){
-                        e.stopPropagation(); creationTargetSlot = slot; isRenaming = false; modal.style.display = 'flex'; titleInput.focus();
-                    }
-                };
-                grid.appendChild(slot);
+                frag.appendChild(slot);
             }
+            grid.appendChild(frag);
         }
 
         async function startRecording(slot) {
             try {
-                if (recorder && recorder.state === 'recording') return;
+                if (activeRecording || startRecording.busy) return;
+                startRecording.busy = true;
+                initAudio();
+                if (settings.haptic && navigator.vibrate) navigator.vibrate(40);
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('getUserMedia indisponible');
                 let stream;
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: true
-                        }
+                        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
                     });
                 } catch (err) {
+                    if (err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) throw err;
                     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 }
-                try {
-                    recorder = new MediaRecorder(stream, { audioBitsPerSecond: 128000 });
-                } catch (err) {
-                    recorder = new MediaRecorder(stream);
-                }
-                chunks = [];
-                const pad = createPadUI(slot, "REC", null, null);
-                pad.classList.add('recording'); activeObj = pad;
-                recorder.onstop = () => {
+                if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (e) {} }
+                if (slot.classList.contains('slot') && slot.hasChildNodes()) {
                     stream.getTracks().forEach(t => t.stop());
-                    pad.classList.remove('recording');
-                    const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-                    if (blob.size === 0) alert("Enregistrement vide : vérifie l'autorisation du micro");
-                    const reader = new FileReader();
-                    reader.onload = (e) => { pad.dataset.audio = e.target.result; saveGrid(); };
-                    reader.readAsDataURL(blob);
-                    isRenaming = false; modal.style.display = 'flex';
+                    startRecording.busy = false;
+                    return;
+                }
+                const pad = createPadUI(slot, { name: settings.threshold ? 'ARMÉ' : 'REC' });
+                pad.classList.add(settings.threshold ? 'armed' : 'recording');
+                const meter = document.createElement('div');
+                meter.className = 'pad-meter';
+                meter.innerHTML = '<div class="pad-meter-fill"></div><div class="pad-meter-thr"></div>';
+                pad.appendChild(meter);
+                const threshold = thresholdFromSensitivity();
+                const thrMark = meter.querySelector('.pad-meter-thr');
+                thrMark.style.left = `${Math.min(98, Math.sqrt(threshold) * 100)}%`;
+                if (!settings.threshold) thrMark.style.display = 'none';
+                const source = audioCtx.createMediaStreamSource(stream);
+                const proc = audioCtx.createScriptProcessor(2048, 1, 1);
+                const mute = audioCtx.createGain();
+                mute.gain.value = 0;
+                source.connect(proc); proc.connect(mute); mute.connect(audioCtx.destination);
+                const sr = audioCtx.sampleRate;
+                const rec = {
+                    pad, slot, stream, source, proc, mute, sr, threshold,
+                    chunks: [], stored: 0, total: 0, lastLoud: 0, level: 0,
+                    triggered: !settings.threshold, heard: false, stopping: false, stopped: false, raf: 0
                 };
-                recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-                recorder.start();
-                pad.onpointerdown = e => { e.stopPropagation(); if(recorder.state==='recording') recorder.stop(); };
-            } catch(e) { alert("Micro requis"); }
+                const preRollChunks = Math.ceil(sr * 0.3 / 2048);
+                proc.onaudioprocess = (ev) => {
+                    if (rec.stopped) return;
+                    const data = new Float32Array(ev.inputBuffer.getChannelData(0));
+                    let peak = 0;
+                    for (let i = 0; i < data.length; i++) { const a = Math.abs(data[i]); if (a > peak) peak = a; }
+                    rec.level = Math.max(peak, rec.level * 0.8);
+                    rec.total += data.length;
+                    rec.chunks.push(data);
+                    rec.stored += data.length;
+                    if (!rec.triggered) {
+                        if (peak >= threshold) { rec.triggered = true; rec.heard = true; rec.lastLoud = rec.total; }
+                        else while (rec.chunks.length > preRollChunks) rec.stored -= rec.chunks.shift().length;
+                        return;
+                    }
+                    if (peak >= threshold * 0.5) { rec.heard = true; rec.lastLoud = rec.total; }
+                    const silentTooLong = settings.autoStop && rec.heard && rec.total - rec.lastLoud > sr * 1.5;
+                    if ((silentTooLong || rec.stored > sr * 30) && !rec.stopping) {
+                        rec.stopping = true;
+                        setTimeout(stopRecording, 0);
+                    }
+                };
+                activeRecording = rec;
+                startRecording.busy = false;
+                recordingLoop(rec);
+                showHint(settings.threshold ? 'Armé : l’enregistrement démarre au premier son · touchez le pad pour arrêter' : 'Enregistrement en cours · touchez le pad pour arrêter', true);
+            } catch (e) {
+                startRecording.busy = false;
+                uiFeedback('error');
+                showToast(e && e.name === 'NotAllowedError' ? 'Accès au micro refusé' : 'Micro indisponible');
+                console.log('Mic error:', e);
+            }
+        }
+        function thresholdFromSensitivity() {
+            const s = Math.min(100, Math.max(0, Number(settings.sensitivity) || 0));
+            return 0.25 * Math.pow(0.04, s / 100);
+        }
+        function recordingLoop(rec) {
+            const fill = rec.pad.querySelector('.pad-meter-fill');
+            const label = rec.pad.querySelector('.pad-label');
+            let wasTriggered = null;
+            const tick = () => {
+                if (rec.stopped) return;
+                if (fill) fill.style.transform = `scaleX(${Math.min(1, Math.sqrt(rec.level))})`;
+                if (rec.triggered !== wasTriggered) {
+                    wasTriggered = rec.triggered;
+                    rec.pad.classList.toggle('armed', !rec.triggered);
+                    rec.pad.classList.toggle('recording', rec.triggered);
+                }
+                if (label) label.textContent = rec.triggered ? `${(rec.stored / rec.sr).toFixed(1)} s` : 'ARMÉ';
+                rec.raf = requestAnimationFrame(tick);
+            };
+            tick();
+        }
+        function stopRecording() {
+            const rec = activeRecording;
+            if (!rec || rec.stopped) return;
+            rec.stopped = true;
+            activeRecording = null;
+            cancelAnimationFrame(rec.raf);
+            rec.proc.onaudioprocess = null;
+            try { rec.source.disconnect(); rec.proc.disconnect(); rec.mute.disconnect(); } catch (e) {}
+            rec.stream.getTracks().forEach(t => t.stop());
+            const pad = rec.pad;
+            pad.classList.remove('armed', 'recording');
+            const meter = pad.querySelector('.pad-meter');
+            if (meter) meter.remove();
+            showHint('');
+            if (!rec.triggered) {
+                pad.remove();
+                uiFeedback('cancel');
+                showToast('Aucun son détecté');
+                updateEmptyHint();
+                return;
+            }
+            uiFeedback('stop');
+            const pcm = new Float32Array(rec.stored);
+            let offset = 0;
+            rec.chunks.forEach(c => { pcm.set(c, offset); offset += c.length; });
+            const processed = settings.trim ? trimAndNormalize(pcm, rec.sr) : pcm;
+            if (!processed || processed.length < rec.sr * 0.03) {
+                pad.remove();
+                uiFeedback('error');
+                showToast('Enregistrement vide ou trop court');
+                updateEmptyHint();
+                return;
+            }
+            const buffer = audioCtx.createBuffer(1, processed.length, rec.sr);
+            buffer.getChannelData(0).set(processed);
+            setPadName(pad, defaultName('SON', '.pad'));
+            openPadEditor(pad, true);
+            putBlob(encodeWAV(processed, rec.sr)).then(id => {
+                audioBufferCache.set(id, buffer);
+                pad.dataset.sound = id;
+                saveProject();
+            }).catch(e => {
+                console.log('Store error:', e);
+                showToast('Stockage du son impossible');
+            });
+        }
+        function trimAndNormalize(pcm, sr) {
+            const n = pcm.length;
+            if (!n) return null;
+            let mean = 0;
+            for (let i = 0; i < n; i++) mean += pcm[i];
+            mean /= n;
+            let peak = 0;
+            for (let i = 0; i < n; i++) {
+                pcm[i] -= mean;
+                const a = Math.abs(pcm[i]);
+                if (a > peak) peak = a;
+            }
+            if (peak < 0.002) return null;
+            const thr = Math.max(peak * 0.05, 0.003);
+            let s = 0;
+            while (s < n && Math.abs(pcm[s]) < thr) s++;
+            let e = n - 1;
+            while (e > s && Math.abs(pcm[e]) < thr) e--;
+            s = Math.max(0, s - Math.round(sr * 0.01));
+            e = Math.min(n - 1, e + Math.round(sr * 0.15));
+            const out = pcm.slice(s, e + 1);
+            const gain = Math.min(0.95 / peak, 40);
+            const fadeIn = Math.max(1, Math.min(out.length >> 1, Math.round(sr * 0.003)));
+            const fadeOut = Math.max(1, Math.min(out.length >> 1, Math.round(sr * 0.03)));
+            for (let i = 0; i < out.length; i++) {
+                let g = gain;
+                if (i < fadeIn) g *= i / fadeIn;
+                const fromEnd = out.length - 1 - i;
+                if (fromEnd < fadeOut) g *= fromEnd / fadeOut;
+                out[i] *= g;
+            }
+            return out;
+        }
+        function encodeWAV(samples, sampleRate) {
+            const buffer = new ArrayBuffer(44 + samples.length * 2);
+            const view = new DataView(buffer);
+            const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+            writeStr(0, 'RIFF');
+            view.setUint32(4, 36 + samples.length * 2, true);
+            writeStr(8, 'WAVE');
+            writeStr(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeStr(36, 'data');
+            view.setUint32(40, samples.length * 2, true);
+            let o = 44;
+            for (let i = 0; i < samples.length; i++, o += 2) {
+                const s = Math.max(-1, Math.min(1, samples[i]));
+                view.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+            }
+            return new Blob([view], { type: 'audio/wav' });
         }
 
-        function finalizeCreation() {
-            const name = titleInput.value.toUpperCase() || "NEW";
-            if (isRenaming) {
-                activeObj.innerText = name;
-                updatePadSize(activeObj, name);
-            } else if (currentMode === 'create') {
-                activeObj.innerText = name;
-                updatePadSize(activeObj, name);
-                setupPadEvents(activeObj);
-            } else if (currentMode === 'bundle') {
-                createBundleUI(creationTargetSlot, name);
-            }
-            modal.style.display = 'none'; titleInput.value = ""; setMode('move'); saveGrid();
-        }
 
         function updatePadSize(pad, text) {
-            let span = Math.max(1, Math.ceil((text.length * 9 + 15) / 60));
+            const ctx = updatePadSize.ctx || (updatePadSize.ctx = document.createElement('canvas').getContext('2d'));
+            ctx.font = '800 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+            const width = ctx.measureText(text).width + text.length * 0.5 + 12;
+            const span = Math.max(1, Math.ceil(width / 60));
             pad.style.width = `calc(${span * 60}px - 4px)`;
             pad.style.gridColumnEnd = `span ${span}`;
         }
 
-        function createPadUI(slot, name, audio, width) {
+        function createPadUI(slot, data) {
             const pad = document.createElement('div');
-            pad.className = 'pad'; pad.innerText = name;
-            if(audio) pad.dataset.audio = audio;
-            if(width) {
-                pad.style.width = width;
-                const m = width.match(/(\d+)px/);
-                if (m) pad.style.gridColumnEnd = `span ${Math.max(1, Math.round(parseInt(m[1]) / 60))}`;
-            }
-            if(slot) slot.appendChild(pad);
-            setupPadEvents(pad);
+            pad.className = 'pad';
+            const label = document.createElement('span');
+            label.className = 'pad-label';
+            pad.appendChild(label);
+            setPadName(pad, data.name || 'NEW');
+            setElColor(pad, data.color || '', '--pad-color');
+            if (data.sound) pad.dataset.sound = data.sound;
+            if (slot) slot.appendChild(pad);
+            attachPad(pad);
             return pad;
         }
 
-        function createBundleUI(slot, name) {
+        function createBundleUI(slot, data) {
             const bun = document.createElement('div');
             bun.className = 'bundle';
-            bun.innerHTML = `<div class="bundle-artwork"><img></div><div class="bundle-header">${name}</div><div class="bundle-body"></div>`;
+            bun.innerHTML = `<div class="bundle-artwork"><img alt=""></div><div class="bundle-header"><button class="bundle-btn bundle-toggle" aria-label="Replier">${ICONS.chevron}</button><span class="bundle-title"></span><button class="bundle-btn bundle-play" aria-label="Tout jouer">${ICONS.play}</button></div><div class="bundle-body"></div>`;
+            setBundleName(bun, data.name || 'BUNDLE');
+            setElColor(bun, data.color || '', '--bundle-color');
+            if (data.collapsed) bun.classList.add('collapsed');
+            if (data.image) setBundleImage(bun, data.image);
             slot.appendChild(bun);
-            setupBundleEvents(bun);
+            attachBundle(bun);
             return bun;
         }
-
-        function setupPadEvents(pad) {
-            let pressTimer;
-            pad.onpointerdown = (e) => {
-                initAudio(); e.stopPropagation();
-                if (currentMode === 'delete') { uiFeedback('delete'); pad.remove(); saveGrid(); return; }
-                
-                // Long press pour renommer
-                pressTimer = setTimeout(() => {
-                    activeObj = pad; isRenaming = true;
-                    titleInput.value = pad.innerText;
-                    modal.style.display = 'flex';
-                }, 600);
-
-                const startX = e.clientX, startY = e.clientY;
-                let hasMoved = false, currentDx = 0, currentDy = 0;
-
-                const onMove = (me) => {
-                    const dx = (me.clientX - startX) / scale;
-                    const dy = (me.clientY - startY) / scale;
-                    if (hasMoved || Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-                        clearTimeout(pressTimer);
-                        if (!hasMoved) { hasMoved = true; isDraggingAny = true; grid.classList.add('show-grid'); pad.classList.add('is-dragging'); }
-                        currentDx = dx;
-                        currentDy = dy;
-                        pad.style.transform = `translate(${dx}px, ${dy}px) scale(1.1)`;
-                    }
-                };
-
-                const onUp = (ue) => {
-                    clearTimeout(pressTimer);
-                    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onUp);
-                    if (hasMoved) {
-                        const firstRect = pad.getBoundingClientRect();
-                        pad.style.visibility = 'hidden';
-                        const target = document.elementFromPoint(ue.clientX, ue.clientY);
-                        const slot = target?.closest('.slot');
-                        const bundleBody = target?.closest('.bundle-body');
-                        pad.style.visibility = 'visible';
-                        if (bundleBody) bundleBody.appendChild(pad);
-                        else if (slot && !slot.hasChildNodes()) slot.appendChild(pad);
-                        isDraggingAny = false; grid.classList.remove('show-grid'); pad.classList.remove('is-dragging');
-                        animateSettle(pad, firstRect);
-                        saveGrid();
-                    } else if (!isRenaming && pad.dataset.audio) {
-                        playPad(pad);
-                    }
-                };
-                document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp); document.addEventListener('pointercancel', onUp);
-            };
+        function setPadName(pad, name) {
+            pad.dataset.name = name;
+            const label = pad.querySelector('.pad-label');
+            if (label) label.textContent = name;
+            updatePadSize(pad, name);
         }
-
-        function setupBundleEvents(bun) {
-            const header = bun.querySelector('.bundle-header');
-            header.onclick = () => {
-                if (bun._justDragged) { bun._justDragged = false; return; }
-                if (currentMode === 'move') {
-                    artPicker.onchange = (f) => {
-                        const file = f.target.files[0];
-                        if (file) {
-                            const reader = new FileReader();
-                            reader.onload = (re) => {
-                                const art = bun.querySelector('.bundle-artwork');
-                                art.style.display = 'block';
-                                art.querySelector('img').src = re.target.result;
-                                saveGrid();
-                            };
-                            reader.readAsDataURL(file);
+        function setElColor(el, color, prop) {
+            el.dataset.color = color || '';
+            if (color) el.style.setProperty(prop, color);
+            else el.style.removeProperty(prop);
+        }
+        function setBundleName(bun, name) {
+            bun.dataset.name = name;
+            bun.querySelector('.bundle-title').textContent = name;
+        }
+        function setBundleImage(bun, id) {
+            const art = bun.querySelector('.bundle-artwork');
+            const img = art.querySelector('img');
+            if (!id) {
+                delete bun.dataset.image;
+                art.style.display = 'none';
+                img.removeAttribute('src');
+                return;
+            }
+            bun.dataset.image = id;
+            blobUrl(id).then(url => {
+                if (url && bun.dataset.image === id) { img.src = url; art.style.display = 'block'; }
+            });
+        }
+        function defaultName(prefix, selector) {
+            const names = new Set([...grid.querySelectorAll(selector)].map(el => el.dataset.name));
+            let n = 1;
+            while (names.has(`${prefix} ${n}`)) n++;
+            return `${prefix} ${n}`;
+        }
+        // Glisser unifié pour les pads et les bundles
+        // opts : holdToDrag, holdMs, lift, bundles, capture, onDown, onRelease, onTap, onHoldRelease
+        function setupDrag(el, handle, opts) {
+            handle.addEventListener('pointerdown', (e) => {
+                if (e.button > 0) return;
+                if (opts.onDown && opts.onDown(e) === false) return;
+                e.stopPropagation();
+                if (isDraggingAny) { if (opts.onRelease) opts.onRelease(); return; }
+                const pointerId = e.pointerId;
+                const startX = e.clientX, startY = e.clientY;
+                const r0 = el.getBoundingClientRect();
+                const baseLeft = r0.left + r0.width / 2 - (el.offsetWidth * scale) / 2;
+                const baseTop = r0.top + r0.height / 2 - (el.offsetHeight * scale) / 2;
+                const lift = opts.lift || 1.08;
+                let state = 'pressed', dx = 0, dy = 0, rafId = 0, lastEv = e, target = null, gridRect = null;
+                if (opts.capture && handle.setPointerCapture) { try { handle.setPointerCapture(pointerId); } catch (err) {} }
+                const holdTimer = setTimeout(() => {
+                    if (state !== 'pressed') return;
+                    state = 'held';
+                    el.classList.add('lifted');
+                    uiFeedback('hold');
+                }, opts.holdMs || 420);
+                const clearMark = () => {
+                    if (target && target.mark) target.mark.classList.remove('snap-target', 'drop-target');
+                };
+                const computeTarget = () => {
+                    if (opts.bundles) {
+                        const hit = document.elementFromPoint(lastEv.clientX, lastEv.clientY);
+                        const body = hit && hit.closest('.bundle-body');
+                        const bun = hit && hit.closest('.bundle');
+                        if (body && !el.contains(body)) {
+                            const before = hit.closest('.pad');
+                            return { body, before: before && before !== el && before.parentElement === body ? before : null, mark: body };
                         }
-                    };
-                    artPicker.click();
+                        if (bun && bun.classList.contains('collapsed')) {
+                            return { body: bun.querySelector('.bundle-body'), before: null, mark: bun, collapsed: true };
+                        }
+                    }
+                    const gx = Math.round(((baseLeft + dx * scale - gridRect.left) / scale - GRID_PADDING) / CELL_SIZE);
+                    const gy = Math.round(((baseTop + dy * scale - gridRect.top) / scale - GRID_PADDING) / CELL_SIZE);
+                    const slot = findNearestFreeSlot(gx, gy, el);
+                    return slot ? { slot, mark: slot } : null;
+                };
+                const render = () => {
+                    rafId = 0;
+                    el.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(${lift})`;
+                    const t = computeTarget();
+                    if (!t || !target || t.mark !== target.mark) {
+                        clearMark();
+                        if (t) t.mark.classList.add(t.slot ? 'snap-target' : 'drop-target');
+                    }
+                    target = t;
+                };
+                const beginDrag = () => {
+                    clearTimeout(holdTimer);
+                    state = 'dragging';
+                    isDraggingAny = true;
+                    tapStart = null;
+                    gridRect = grid.getBoundingClientRect();
+                    grid.classList.add('show-grid');
+                    el.classList.remove('lifted', 'pressed');
+                    el.classList.add('is-dragging');
+                };
+                const finish = () => {
+                    clearTimeout(holdTimer);
+                    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+                    document.removeEventListener('pointermove', onMove);
+                    document.removeEventListener('pointerup', onUp);
+                    document.removeEventListener('pointercancel', onUp);
+                };
+                const onMove = (me) => {
+                    if (me.pointerId !== pointerId) return;
+                    lastEv = me;
+                    const dist = Math.hypot(me.clientX - startX, me.clientY - startY);
+                    if (state === 'pressed' && dist > 8) {
+                        if (opts.holdToDrag) {
+                            state = 'panning';
+                            finish();
+                            if (opts.onRelease) opts.onRelease();
+                            handOffToPan(me);
+                            return;
+                        }
+                        beginDrag();
+                    } else if (state === 'held' && dist > 6) {
+                        beginDrag();
+                    }
+                    if (state === 'dragging') {
+                        dx = (me.clientX - startX) / scale;
+                        dy = (me.clientY - startY) / scale;
+                        if (!rafId) rafId = requestAnimationFrame(render);
+                    }
+                };
+                const onUp = (ue) => {
+                    if (ue.pointerId !== pointerId) return;
+                    finish();
+                    if (opts.onRelease) opts.onRelease();
+                    const cancelled = ue.type === 'pointercancel';
+                    if (state === 'dragging') {
+                        lastEv = ue;
+                        clearMark();
+                        const t = cancelled ? null : computeTarget();
+                        el.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(${lift})`;
+                        const firstRect = el.getBoundingClientRect();
+                        el.classList.remove('is-dragging');
+                        grid.classList.remove('show-grid');
+                        isDraggingAny = false;
+                        if (t && t.body) {
+                            if (t.before) t.body.insertBefore(el, t.before); else t.body.appendChild(el);
+                            updatePadSize(el, el.dataset.name || '');
+                        } else if (t && t.slot && t.slot !== el.parentElement) {
+                            t.slot.appendChild(el);
+                        }
+                        if (t && t.collapsed) {
+                            el.style.transform = '';
+                            t.mark.classList.add('drop-flash');
+                            setTimeout(() => t.mark.classList.remove('drop-flash'), 450);
+                        } else {
+                            animateSettle(el, firstRect);
+                        }
+                        uiFeedback('drop');
+                        saveProject();
+                    } else if (state === 'held') {
+                        el.classList.remove('lifted');
+                        if (!cancelled && opts.onHoldRelease) opts.onHoldRelease();
+                    } else if (state === 'pressed') {
+                        if (!cancelled && opts.onTap) opts.onTap(e);
+                    }
+                    state = 'done';
+                };
+                document.addEventListener('pointermove', onMove);
+                document.addEventListener('pointerup', onUp);
+                document.addEventListener('pointercancel', onUp);
+            });
+        }
+        function attachPad(pad) {
+            setupDrag(pad, pad, {
+                holdToDrag: true,
+                holdMs: 380,
+                lift: 1.1,
+                bundles: true,
+                onDown: (e) => {
+                    if (activeRecording && activeRecording.pad === pad) {
+                        e.stopPropagation(); e.preventDefault();
+                        stopRecording();
+                        return false;
+                    }
+                    if (isRecordingPad(pad)) { e.stopPropagation(); return false; }
+                    if (currentMode === 'delete') { e.stopPropagation(); deletePad(pad); return false; }
+                    pad.classList.add('pressed');
+                    playPad(pad);
+                    uiFeedback('play');
+                    return true;
+                },
+                onRelease: () => pad.classList.remove('pressed'),
+                onHoldRelease: () => openPadEditor(pad, false)
+            });
+        }
+        function attachBundle(bun) {
+            const header = bun.querySelector('.bundle-header');
+            setupDrag(bun, header, {
+                capture: true,
+                holdMs: 450,
+                lift: 1.03,
+                onDown: (e) => {
+                    if (currentMode === 'delete') { e.stopPropagation(); deleteBundle(bun); return false; }
+                    if (e.target.closest('.bundle-play')) { e.stopPropagation(); playBundle(bun); return false; }
+                    return true;
+                },
+                onTap: (e) => {
+                    if (currentMode === 'move' && !e.target.closest('.bundle-toggle')) playBundle(bun);
+                    else toggleBundle(bun);
+                },
+                onHoldRelease: () => openBundleEditor(bun)
+            });
+        }
+        function deletePad(pad) {
+            stopPadVoice(pad);
+            uiFeedback('delete');
+            pad.classList.add('removing');
+            setTimeout(() => { pad.remove(); saveProject(); updateEmptyHint(); }, 170);
+        }
+        async function deleteBundle(bun) {
+            const count = bun.querySelectorAll('.bundle-body > .pad').length;
+            if (count > 0) {
+                const ok = await confirmSheet('Supprimer le bundle ?', `« ${bun.dataset.name} » et ses ${count} pad${count > 1 ? 's' : ''} seront supprimés.`, 'Supprimer');
+                if (!ok) return;
+            }
+            if (bun._seq) bun._seq.cancelled = true;
+            bun.querySelectorAll('.pad').forEach(stopPadVoice);
+            uiFeedback('delete');
+            bun.classList.add('removing');
+            setTimeout(() => { bun.remove(); saveProject(); updateEmptyHint(); }, 170);
+        }
+        function toggleBundle(bun) {
+            bun.classList.toggle('collapsed');
+            uiFeedback('toggle');
+            saveProject();
+        }
+        function resizeImage(file, max) {
+            return new Promise((resolve) => {
+                const url = URL.createObjectURL(file);
+                const img = new Image();
+                img.onload = () => {
+                    const ratio = Math.min(1, max / Math.max(img.width, img.height));
+                    const c = document.createElement('canvas');
+                    c.width = Math.max(1, Math.round(img.width * ratio));
+                    c.height = Math.max(1, Math.round(img.height * ratio));
+                    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                    URL.revokeObjectURL(url);
+                    c.toBlob(b => resolve(b || file), 'image/jpeg', 0.85);
+                };
+                img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+                img.src = url;
+            });
+        }
+        function pickBundleImage(bun) {
+            artPicker.value = '';
+            artPicker.onchange = async (f) => {
+                const file = f.target.files[0];
+                if (!file) return;
+                try {
+                    const id = await putBlob(await resizeImage(file, 512));
+                    setBundleImage(bun, id);
+                    saveProject();
+                    uiFeedback('confirm');
+                } catch (e) {
+                    showToast('Image impossible à enregistrer');
                 }
             };
-
-            header.onpointerdown = (e) => {
-                e.stopPropagation();
-                bun._justDragged = false;
-                if (currentMode === 'delete') { uiFeedback('delete'); bun.remove(); saveGrid(); return; }
-                const startX = e.clientX, startY = e.clientY;
-                let hasMoved = false, currentDx = 0, currentDy = 0;
-                const onMove = (me) => {
-                    const dx = (me.clientX - startX) / scale;
-                    const dy = (me.clientY - startY) / scale;
-                    if (hasMoved || Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-                        if (!hasMoved) { hasMoved = true; isDraggingAny = true; grid.classList.add('show-grid'); bun.classList.add('is-dragging'); }
-                        currentDx = dx;
-                        currentDy = dy;
-                        bun.style.transform = `translate(${dx}px, ${dy}px) scale(1.05)`;
-                    }
-                };
-                const onUp = (ue) => {
-                    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onUp);
-                    if (hasMoved) {
-                        const firstRect = bun.getBoundingClientRect();
-                        bun.style.visibility = 'hidden';
-                        const slot = document.elementFromPoint(ue.clientX, ue.clientY)?.closest('.slot');
-                        bun.style.visibility = 'visible';
-                        if (slot && !slot.hasChildNodes()) slot.appendChild(bun);
-                        isDraggingAny = false; grid.classList.remove('show-grid'); bun.classList.remove('is-dragging');
-                        bun._justDragged = true;
-                        animateSettle(bun, firstRect);
-                        saveGrid();
-                    }
-                };
-                document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp); document.addEventListener('pointercancel', onUp);
-            };
+            artPicker.click();
         }
 
-        function setMode(m) {
+
+
+        function setMode(m, silent) {
+            if ((activeRecording || startRecording.busy) && m !== 'create') {
+                uiFeedback('error');
+                showToast('Arrête d’abord l’enregistrement (touche le pad rouge)');
+                return;
+            }
+            if (!silent && m !== currentMode) uiFeedback('tap');
             currentMode = m;
-            document.querySelectorAll('.btn-mode').forEach(b => b.classList.remove('active', 'active-create', 'active-delete', 'active-bundle'));
-            document.getElementById(m+'Btn')?.classList.add('active-'+m);
-            if(m === 'move') document.getElementById('moveBtn').classList.add('active');
+            document.body.classList.remove('mode-move', 'mode-create', 'mode-bundle', 'mode-delete');
+            document.body.classList.add('mode-' + m);
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+            if (!silent) showHint(modeHint(m));
+        }
+        function modeHint(m) {
+            return ({
+                move: 'Touchez un pad ou le titre d’un bundle pour jouer · appui long pour déplacer ou modifier',
+                create: settings.threshold
+                    ? 'Touchez une case vide ou un bundle : l’enregistrement démarre au premier son'
+                    : 'Touchez une case vide ou un bundle pour enregistrer',
+                bundle: 'Touchez une case vide pour créer un bundle',
+                delete: 'Touchez un pad ou un bundle pour le supprimer'
+            })[m] || '';
+        }
+        function showHint(text, sticky) {
+            clearTimeout(hintTimer);
+            delete hintEl.dataset.sticky;
+            if (!text) { hintEl.classList.remove('show'); return; }
+            hintEl.textContent = text;
+            hintEl.classList.add('show');
+            if (!sticky) hintTimer = setTimeout(() => { hintEl.classList.remove('show'); updateEmptyHint(); }, 3200);
+        }
+        function updateEmptyHint() {
+            if (activeRecording || sheetState) return;
+            const empty = !grid.querySelector('.slot > *');
+            if (empty) {
+                showHint(currentMode === 'move' ? 'Projet vide · passez en CRÉER puis touchez une case pour enregistrer un son' : modeHint(currentMode), true);
+                hintEl.dataset.sticky = '1';
+            } else if (hintEl.dataset.sticky) {
+                showHint('');
+            }
+        }
+        function showToast(msg, ms) {
+            clearTimeout(toastTimer);
+            toastEl.textContent = msg;
+            toastEl.classList.add('show');
+            toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms || 2200);
+        }
+        function escapeHTML(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+        }
+        function openSheet(title, html, onClose) {
+            if (sheetState) closeSheet(true);
+            showHint('');
+            sheet.querySelector('.sheet-title').textContent = title;
+            const body = sheet.querySelector('.sheet-body');
+            body.innerHTML = html;
+            sheetState = { onClose, openedAt: Date.now() };
+            sheet.style.removeProperty('--drag');
+            sheet.classList.add('open');
+            sheetBackdrop.classList.add('open');
+            sheet.scrollTop = 0;
+            uiFeedback('open');
+            return body;
+        }
+        function closeSheet(silent) {
+            if (!sheetState) return;
+            const st = sheetState;
+            sheetState = null;
+            sheet.classList.remove('open');
+            sheetBackdrop.classList.remove('open');
+            if (document.activeElement && sheet.contains(document.activeElement)) document.activeElement.blur();
+            if (!silent) uiFeedback('close');
+            if (st.onClose) st.onClose();
+            updateEmptyHint();
+        }
+        // Bloque le « clic fantôme » qui suit un toucher : sans ça, le clic tombe sur le fond
+        // (ou un bouton) du panneau qui vient de s'ouvrir sous le doigt et le referme aussitôt.
+        document.addEventListener('click', (e) => {
+            if (!sheetState || Date.now() - sheetState.openedAt > 400) return;
+            if (e.target === sheetBackdrop || sheet.contains(e.target)) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, true);
+        function focusField(input) {
+            if (!input) return;
+            const f = () => {
+                if (!sheetState || document.activeElement === input) return;
+                input.focus({ preventScroll: true });
+                try { input.setSelectionRange(0, input.value.length); } catch (e) {}
+            };
+            f();
+            setTimeout(f, 60);
+        }
+        function confirmSheet(title, message, okLabel) {
+            return new Promise((resolve) => {
+                let answered = false;
+                const body = openSheet(title, `
+                    <div class="sheet-text">${escapeHTML(message)}</div>
+                    <div class="sheet-actions">
+                        <button class="sheet-btn" data-act="no">Annuler</button>
+                        <button class="sheet-btn danger" data-act="yes">${ICONS.trash} ${escapeHTML(okLabel || 'OK')}</button>
+                    </div>`, () => { if (!answered) resolve(false); });
+                body.querySelector('[data-act="no"]').onclick = () => closeSheet();
+                body.querySelector('[data-act="yes"]').onclick = () => { answered = true; closeSheet(true); resolve(true); };
+            });
+        }
+        function colorRowHTML(current) {
+            const sel = current || '';
+            return `<div class="color-row">${PAD_COLORS.map(c => `<button class="color-swatch${c === sel ? ' selected' : ''}" data-color="${c}" style="--sw: ${c || '#4a4b52'}" aria-label="${c || 'Par défaut'}"></button>`).join('')}</div>`;
+        }
+        function bindColorRow(body, onPick) {
+            const swatches = body.querySelectorAll('.color-swatch');
+            swatches.forEach(sw => {
+                sw.onclick = () => {
+                    swatches.forEach(s => s.classList.toggle('selected', s === sw));
+                    onPick(sw.dataset.color);
+                    uiFeedback('tap');
+                };
+            });
+        }
+        function openPadEditor(pad, isNew) {
+            const body = openSheet(isNew ? 'Nouveau son' : 'Modifier le pad', `
+                <input type="text" id="edName" maxlength="24" value="${escapeHTML(pad.dataset.name || '')}" placeholder="NOM DU PAD" autocomplete="off" autocapitalize="characters" enterkeyhint="done">
+                <div class="sheet-section">Couleur</div>
+                ${colorRowHTML(pad.dataset.color)}
+                <div class="sheet-grid">
+                    <button class="sheet-btn" data-act="play">${ICONS.play} Écouter</button>
+                    <button class="sheet-btn danger" data-act="delete">${ICONS.trash} ${isNew ? 'Jeter' : 'Supprimer'}</button>
+                </div>
+                <div class="sheet-actions"><button class="sheet-btn primary" data-act="ok">OK</button></div>`, () => {
+                if (!pad.isConnected) return;
+                const v = input.value.trim().toUpperCase();
+                if (v) setPadName(pad, v);
+                if (isNew) uiFeedback('confirm');
+                saveProject();
+            });
+            const input = body.querySelector('#edName');
+            input.oninput = () => { const v = input.value.trim().toUpperCase(); if (v) setPadName(pad, v); };
+            bindColorRow(body, c => setElColor(pad, c, '--pad-color'));
+            body.querySelector('[data-act="play"]').onclick = () => playPad(pad);
+            body.querySelector('[data-act="delete"]').onclick = () => { closeSheet(true); deletePad(pad); };
+            body.querySelector('[data-act="ok"]').onclick = () => closeSheet();
+            if (isNew) focusField(input);
+        }
+        function openNewBundle(slot) {
+            let color = '';
+            const body = openSheet('Nouveau bundle', `
+                <input type="text" id="edName" maxlength="24" value="${defaultName('BUNDLE', '.bundle')}" placeholder="NOM DU BUNDLE" autocomplete="off" autocapitalize="characters" enterkeyhint="done">
+                <div class="sheet-section">Couleur</div>
+                ${colorRowHTML('')}
+                <div class="sheet-actions">
+                    <button class="sheet-btn" data-act="cancel">Annuler</button>
+                    <button class="sheet-btn primary" data-act="ok">Créer</button>
+                </div>`);
+            const input = body.querySelector('#edName');
+            bindColorRow(body, c => { color = c; });
+            body.querySelector('[data-act="cancel"]').onclick = () => closeSheet();
+            body.querySelector('[data-act="ok"]').onclick = () => {
+                const name = input.value.trim().toUpperCase() || defaultName('BUNDLE', '.bundle');
+                closeSheet(true);
+                if (slot.hasChildNodes()) return;
+                createBundleUI(slot, { name, color });
+                uiFeedback('confirm');
+                saveProject();
+                setMode('move', true);
+                updateEmptyHint();
+            };
+            focusField(input);
+        }
+        function openBundleEditor(bun) {
+            const hasImg = !!bun.dataset.image;
+            const body = openSheet('Modifier le bundle', `
+                <input type="text" id="edName" maxlength="24" value="${escapeHTML(bun.dataset.name || '')}" placeholder="NOM DU BUNDLE" autocomplete="off" autocapitalize="characters" enterkeyhint="done">
+                <div class="sheet-section">Couleur</div>
+                ${colorRowHTML(bun.dataset.color)}
+                <div class="sheet-grid">
+                    <button class="sheet-btn" data-act="play">${ICONS.play} Tout jouer</button>
+                    <button class="sheet-btn" data-act="image">${ICONS.image} ${hasImg ? 'Changer l’image' : 'Image'}</button>
+                    ${hasImg ? '<button class="sheet-btn" data-act="noimage">Retirer l’image</button>' : ''}
+                    <button class="sheet-btn danger" data-act="delete">${ICONS.trash} Supprimer</button>
+                </div>
+                <div class="sheet-actions"><button class="sheet-btn primary" data-act="ok">OK</button></div>`, () => {
+                const v = input.value.trim().toUpperCase();
+                if (v && bun.isConnected) setBundleName(bun, v);
+                saveProject();
+            });
+            const input = body.querySelector('#edName');
+            input.oninput = () => { const v = input.value.trim().toUpperCase(); if (v) setBundleName(bun, v); };
+            bindColorRow(body, c => setElColor(bun, c, '--bundle-color'));
+            body.querySelector('[data-act="play"]').onclick = () => playBundle(bun);
+            body.querySelector('[data-act="image"]').onclick = () => { closeSheet(true); pickBundleImage(bun); };
+            const noImg = body.querySelector('[data-act="noimage"]');
+            if (noImg) noImg.onclick = () => { setBundleImage(bun, ''); closeSheet(); };
+            body.querySelector('[data-act="delete"]').onclick = () => { closeSheet(true); deleteBundle(bun); };
+            body.querySelector('[data-act="ok"]').onclick = () => closeSheet();
+        }
+        function projectSummary(p) {
+            const d = p.data || {};
+            let n = (d.pads || []).length;
+            (d.bundles || []).forEach(b => { n += (b.pads || []).length; });
+            const date = new Date(p.updated || p.created || Date.now()).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+            return `${n} son${n > 1 ? 's' : ''} · ${date}`;
+        }
+        async function openProjects() {
+            if (activeRecording) { showToast('Arrête d’abord l’enregistrement'); return; }
+            await flushSave();
+            let projects;
+            try { projects = await listProjects(); } catch (e) { showToast('Stockage indisponible'); return; }
+            const body = openSheet('Projets', `
+                <div class="project-list">${projects.map(p => `
+                    <div class="project-item${currentProject && p.id === currentProject.id ? ' current' : ''}" data-id="${p.id}">
+                        <button class="project-open" data-act="open">${escapeHTML(p.name)}<span class="project-meta">${projectSummary(p)}</span></button>
+                        <button class="icon-btn" data-act="rename" aria-label="Renommer">${ICONS.edit}</button>
+                        <button class="icon-btn" data-act="copy" aria-label="Dupliquer">${ICONS.copy}</button>
+                        <button class="icon-btn danger" data-act="delete" aria-label="Supprimer">${ICONS.trash}</button>
+                    </div>`).join('')}
+                </div>
+                <div class="sheet-actions"><button class="sheet-btn primary" data-act="new">${ICONS.plus} Nouveau projet</button></div>`);
+            body.querySelectorAll('.project-item').forEach(row => {
+                const p = projects.find(x => x.id === row.dataset.id);
+                row.querySelector('[data-act="open"]').onclick = async () => {
+                    closeSheet(true);
+                    if (currentProject && p.id === currentProject.id) return;
+                    await loadProject(p.id);
+                    uiFeedback('confirm');
+                    showToast(`Projet « ${p.name} »`);
+                };
+                row.querySelector('[data-act="rename"]').onclick = () => openProjectRename(p, false);
+                row.querySelector('[data-act="copy"]').onclick = async () => {
+                    await flushSave();
+                    const fresh = await dbOp('projects', 'readonly', s => s.get(p.id));
+                    await createProject(`${p.name} (copie)`, JSON.parse(JSON.stringify((fresh && fresh.data) || {})));
+                    uiFeedback('confirm');
+                    openProjects();
+                };
+                row.querySelector('[data-act="delete"]').onclick = async () => {
+                    const ok = await confirmSheet('Supprimer le projet ?', `« ${p.name} » et tous ses sons seront supprimés définitivement.`, 'Supprimer');
+                    if (!ok) { openProjects(); return; }
+                    await dbOp('projects', 'readwrite', s => s.delete(p.id));
+                    if (currentProject && currentProject.id === p.id) {
+                        currentProject = null;
+                        const rest = await listProjects();
+                        const next = rest.length ? rest[rest.length - 1] : await createProject('Projet 1');
+                        await loadProject(next.id);
+                    }
+                    uiFeedback('delete');
+                    await gcBlobs();
+                    openProjects();
+                };
+            });
+            body.querySelector('[data-act="new"]').onclick = async () => {
+                const names = new Set(projects.map(p => p.name));
+                let n = projects.length + 1;
+                while (names.has(`Projet ${n}`)) n++;
+                await flushSave();
+                const p = await createProject(`Projet ${n}`);
+                await loadProject(p.id);
+                openProjectRename(p, true);
+            };
+        }
+        function openProjectRename(p, isNew) {
+            const body = openSheet(isNew ? 'Nouveau projet' : 'Renommer le projet', `
+                <input type="text" id="edName" maxlength="32" value="${escapeHTML(p.name)}" placeholder="Nom du projet" autocomplete="off" enterkeyhint="done">
+                <div class="sheet-actions">
+                    <button class="sheet-btn" data-act="cancel">${isNew ? 'Garder ce nom' : 'Annuler'}</button>
+                    <button class="sheet-btn primary" data-act="ok">OK</button>
+                </div>`);
+            const input = body.querySelector('#edName');
+            body.querySelector('[data-act="cancel"]').onclick = () => { if (isNew) closeSheet(); else openProjects(); };
+            body.querySelector('[data-act="ok"]').onclick = async () => {
+                const name = input.value.trim() || p.name;
+                await renameProject(p.id, name);
+                uiFeedback('confirm');
+                if (isNew) closeSheet(true); else openProjects();
+            };
+            focusField(input);
+        }
+        async function storageInfo() {
+            try {
+                if (!navigator.storage || !navigator.storage.estimate) return '';
+                const { usage, quota } = await navigator.storage.estimate();
+                const persisted = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+                return `Stockage : ${(usage / 1048576).toFixed(1)} Mo utilisés sur ${Math.round(quota / 1048576)} Mo${persisted ? ' · protégé' : ''}`;
+            } catch (e) { return ''; }
+        }
+        function saveSettings() {
+            try { localStorage.setItem('skeuoGridSettings', JSON.stringify(settings)); }
+            catch (e) { console.log('Settings save error:', e); }
+        }
+        function toggleSetting(key, value) {
+            settings[key] = value;
+            saveSettings();
+            uiFeedback('toggle');
+        }
+        function openOptions() {
+            const row = (key, label, sub) => `
+                <label class="toggle-row">
+                    <span>${label}${sub ? `<span class="toggle-sub">${sub}</span>` : ''}</span>
+                    <input type="checkbox" data-key="${key}"${settings[key] ? ' checked' : ''}>
+                    <span class="toggle-switch"></span>
+                </label>`;
+            const body = openSheet('Options', `
+                <div class="sheet-section">Interface</div>
+                ${row('sound', 'Sons de l’interface')}
+                ${row('haptic', 'Retour haptique', 'Non disponible sur iPhone')}
+                <div class="sheet-section">Enregistrement</div>
+                ${row('threshold', 'Déclenchement au seuil', 'L’enregistrement démarre au premier son')}
+                <div class="range-row" id="sensRow">
+                    <div class="range-head"><span>Sensibilité</span><span class="range-value" id="sensVal">${settings.sensitivity}</span></div>
+                    <input type="range" id="sensRange" min="0" max="100" step="1" value="${settings.sensitivity}">
+                </div>
+                ${row('autoStop', 'Arrêt automatique', 'Après 1,5 s de silence')}
+                ${row('trim', 'Rognage et normalisation', 'Retire les silences, volume au maximum')}
+                <div class="storage-info" id="storageInfo"></div>
+                <div class="sheet-actions"><button class="sheet-btn primary" data-act="ok">Fermer</button></div>`);
+            const sensRow = body.querySelector('#sensRow');
+            const updateSens = () => sensRow.classList.toggle('disabled', !settings.threshold);
+            body.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                cb.onchange = () => { toggleSetting(cb.dataset.key, cb.checked); updateSens(); };
+            });
+            const range = body.querySelector('#sensRange');
+            const val = body.querySelector('#sensVal');
+            range.oninput = () => { val.textContent = range.value; };
+            range.onchange = () => toggleSetting('sensitivity', parseInt(range.value, 10));
+            body.querySelector('[data-act="ok"]').onclick = () => closeOptions();
+            updateSens();
+            storageInfo().then(t => { const el = body.querySelector('#storageInfo'); if (el) el.textContent = t; });
+        }
+        function closeOptions() {
+            closeSheet();
         }
 
         function updateTransform() { layer.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`; }
@@ -485,12 +1704,150 @@
             transformRaf = true;
             requestAnimationFrame(() => { transformRaf = false; updateTransform(); });
         }
+        function fitToContent(animate) {
+            const vw = window.innerWidth, vh = window.innerHeight;
+            const topbar = document.getElementById('topbar');
+            const toolbar = document.getElementById('toolbar');
+            const top = (topbar ? topbar.getBoundingClientRect().bottom : 0) + 8;
+            const bottom = (toolbar ? vh - toolbar.getBoundingClientRect().top : 0) + 8;
+            const availW = vw - 24;
+            const availH = Math.max(120, vh - top - bottom);
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            grid.querySelectorAll('.slot > .pad, .slot > .bundle, .slot > .bundle > .bundle-artwork').forEach(el => {
+                const r = el.getBoundingClientRect();
+                if (!r.width || !r.height) return;
+                minX = Math.min(minX, (r.left - pointX) / scale);
+                minY = Math.min(minY, (r.top - pointY) / scale);
+                maxX = Math.max(maxX, (r.right - pointX) / scale);
+                maxY = Math.max(maxY, (r.bottom - pointY) / scale);
+            });
+            if (minX === Infinity) {
+                scale = 1;
+                pointX = vw / 2 - grid.offsetWidth / 2;
+                pointY = top + availH / 2 - grid.offsetHeight / 2;
+            } else {
+                const m = 24;
+                minX -= m; minY -= m; maxX += m; maxY += m;
+                const w = maxX - minX, h = maxY - minY;
+                scale = Math.min(Math.max(Math.min(availW / w, availH / h), 0.25), 1.5);
+                pointX = (vw - w * scale) / 2 - minX * scale;
+                pointY = top + (availH - h * scale) / 2 - minY * scale;
+            }
+            if (animate) {
+                layer.classList.add('animating');
+                clearTimeout(fitToContent.timer);
+                fitToContent.timer = setTimeout(() => layer.classList.remove('animating'), 420);
+                uiFeedback('tap');
+            }
+            updateTransform();
+        }
+        function handOffToPan(e) {
+            if (!evCache.some(ev => ev.pointerId === e.pointerId)) evCache.push(e);
+            tapStart = null;
+            viewport.classList.add('grabbing');
+        }
+        function handleViewportTap(e) {
+            const target = document.elementFromPoint(e.clientX, e.clientY);
+            if (!target || !viewport.contains(target)) return;
+            const body = target.closest('.bundle-body');
+            const slot = target.closest('.slot');
+            if (currentMode === 'create') {
+                if (body && target === body) { startRecording(body); return; }
+                if (slot && !slot.hasChildNodes()) { startRecording(slot); return; }
+            } else if (currentMode === 'bundle') {
+                if (!body && slot && !slot.hasChildNodes()) { uiFeedback('tap'); openNewBundle(slot); return; }
+            }
+            const now = Date.now();
+            if (lastTap && now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+                lastTap = null;
+                fitToContent(true);
+                return;
+            }
+            lastTap = { t: now, x: e.clientX, y: e.clientY };
+        }
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoom = e.ctrlKey || e.metaKey || (e.deltaX === 0 && (e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50));
+            if (zoom) {
+                const os = scale;
+                const speed = e.deltaMode === 1 ? 0.05 : (e.ctrlKey ? 0.01 : 0.0015);
+                scale = Math.min(Math.max(0.1, scale * Math.exp(-e.deltaY * speed)), 5);
+                pointX = e.clientX - ((e.clientX - pointX) / os) * scale;
+                pointY = e.clientY - ((e.clientY - pointY) / os) * scale;
+            } else {
+                pointX -= e.deltaX;
+                pointY -= e.deltaY;
+            }
+            scheduleTransform();
+        }, { passive: false });
+        document.addEventListener('keydown', (e) => {
+            if (sheetState) {
+                if (e.key === 'Escape') { e.preventDefault(); closeSheet(); }
+                else if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type === 'text') {
+                    e.preventDefault();
+                    const ok = sheet.querySelector('[data-act="ok"]');
+                    if (ok) ok.click();
+                }
+                return;
+            }
+            if (e.target.tagName === 'INPUT') return;
+            const modes = { '1': 'move', '2': 'create', '3': 'bundle', '4': 'delete' };
+            if (modes[e.key]) setMode(modes[e.key]);
+            else if (e.key === 'f' || e.key === 'F' || e.key === '0') fitToContent(true);
+            else if (e.key === 'Escape' && activeRecording) stopRecording();
+        });
+        document.addEventListener('contextmenu', (e) => {
+            if (e.target.tagName !== 'INPUT') e.preventDefault();
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'hidden') return;
+            if (activeRecording) stopRecording();
+            saveProjectNow();
+        });
+        sheet.addEventListener('pointerdown', (e) => {
+            if (!e.target.closest('.sheet-handle, .sheet-title')) return;
+            const startY = e.clientY;
+            let dy = 0;
+            sheet.style.transition = 'none';
+            const move = (me) => {
+                dy = Math.max(0, me.clientY - startY);
+                sheet.style.setProperty('--drag', dy + 'px');
+            };
+            const up = () => {
+                document.removeEventListener('pointermove', move);
+                document.removeEventListener('pointerup', up);
+                document.removeEventListener('pointercancel', up);
+                sheet.style.transition = '';
+                if (dy > 80) closeSheet(); else sheet.style.removeProperty('--drag');
+            };
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', up);
+            document.addEventListener('pointercancel', up);
+        });
+        if (window.visualViewport) {
+            const onViewportChange = () => {
+                const vv = window.visualViewport;
+                const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+                document.documentElement.style.setProperty('--kb', kb + 'px');
+            };
+            window.visualViewport.addEventListener('resize', onViewportChange);
+            window.visualViewport.addEventListener('scroll', onViewportChange);
+        }
 
-        viewport.onpointerdown = e => { if (currentMode === 'move') viewport.classList.add('grabbing'); evCache.push(e); };
+        viewport.onpointerdown = e => {
+            evCache.push(e);
+            if (evCache.length === 1) {
+                tapStart = { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now(), moved: false };
+                viewport.classList.add('grabbing');
+            } else {
+                tapStart = null;
+            }
+        };
         viewport.onpointermove = e => {
             const idx = evCache.findIndex(ev => ev.pointerId === e.pointerId);
             let prevEv = null;
             if (idx !== -1) { prevEv = evCache[idx]; evCache[idx] = e; }
+            if (tapStart && e.pointerId === tapStart.id && !tapStart.moved && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > 8) tapStart.moved = true;
             if (evCache.length === 2) {
                 const p1 = evCache[0], p2 = evCache[1];
                 const d = Math.sqrt((p1.clientX - p2.clientX)**2 + (p1.clientY - p2.clientY)**2);
@@ -502,29 +1859,37 @@
                     scheduleTransform();
                 }
                 prevDiff = d;
-            } else if (evCache.length === 1 && currentMode === 'move' && !isDraggingAny && prevEv) {
+            } else if (evCache.length === 1 && !isDraggingAny && prevEv && (!tapStart || tapStart.moved)) {
                 pointX += e.clientX - prevEv.clientX;
                 pointY += e.clientY - prevEv.clientY;
                 scheduleTransform();
             }
         };
-        const releasePointer = e => { evCache = evCache.filter(ev => ev.pointerId !== e.pointerId); if (evCache.length < 2) prevDiff = -1; viewport.classList.remove('grabbing'); };
+        const releasePointer = e => {
+            initAudio();
+            const isTap = tapStart && tapStart.id === e.pointerId && !tapStart.moved && e.type === 'pointerup' && Date.now() - tapStart.t < 500;
+            if (tapStart && tapStart.id === e.pointerId) tapStart = null;
+            evCache = evCache.filter(ev => ev.pointerId !== e.pointerId);
+            if (evCache.length < 2) prevDiff = -1;
+            if (!evCache.length) viewport.classList.remove('grabbing');
+            if (isTap) handleViewportTap(e);
+        };
         window.onpointerup = releasePointer;
         window.onpointercancel = releasePointer;
 
         renderGrid();
-        loadGrid();
-        pointX = window.innerWidth / 2 - (grid.offsetWidth / 2);
-        pointY = window.innerHeight / 2 - (grid.offsetHeight / 2);
+        setMode('move', true);
         updateTransform();
+        initProjects();
+        if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     </script>
 
     <style>
         #pwaInstallBtn {
-            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-            background: #000000; color: white; border: none; padding: 12px 24px;
+            position: fixed; top: calc(var(--topbar-h) + var(--safe-top) + 6px); left: 50%; transform: translateX(-50%);
+            background: var(--panel); color: #fff; border: 1px solid var(--led-blue); padding: 10px 20px;
             border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            display: none; z-index: 10000; font-weight: bold; cursor: pointer;
+            display: none; z-index: 10001; font-weight: bold; font-size: 13px; cursor: pointer;
         }
     </style>
     <button id="pwaInstallBtn">Installer l'application</button>
